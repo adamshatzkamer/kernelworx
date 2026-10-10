@@ -277,6 +277,7 @@ Otpauth
 ownerAccountId
 pageProps
 Paper
+PATHFIX
 passwordless
 pathlib
 paymentMethod
