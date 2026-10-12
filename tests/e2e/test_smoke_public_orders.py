@@ -83,15 +83,6 @@ ACK_DISCLOSURE_TEXT = (
 #: though the settings checklist always offers it.
 NEVER_ALLOWED_METHOD = "Check"
 
-#: Skip reason shared by the buyer submit/receipt tests. Delete the ``pytest.skip``
-#: call in those tests (not this constant) once the two resolvers ship.
-_WRITE_PATH_MISSING = (
-    "spec 10.5 buyer flow needs publicCreateOrder/publicGetOrderReceipt, which have no resolver "
-    "anywhere in the repo (schema-only): slice-plan item 5 'Public write pipeline' and item 6 "
-    "'Receipt read + email' have not shipped — remove this skip when they land"
-)
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -580,10 +571,7 @@ def test_buyer_submit_without_email_offers_the_choice_then_succeeds(
 ) -> None:
     """No email -> dialog; "go back" keeps the form; "continue" -> success screen.
 
-    Skipped: see :data:`_WRITE_PATH_MISSING`.
     """
-    pytest.skip(_WRITE_PATH_MISSING)
-
     offer = PublicOrderPage(buyer_page)
     offer.goto_share_url(_po_state["share_url"])
     offer.set_quantity(offer.product_names()[0], 2)
@@ -611,14 +599,11 @@ def test_buyer_order_with_email_lands_and_reopens_the_same_receipt(
 ) -> None:
     """An emailed order shows the honest send state and a working receipt link.
 
-    Skipped: see :data:`_WRITE_PATH_MISSING`.  When it activates, the send state
     is environment-appropriate by design: ``confirmationEmailSent`` is false on
     ephemeral (the SES module is created with ``create = false`` there) and the
     dev copy is one of the two honest states until the one-time SES identity
     verification lands; either way the order row must have landed.
     """
-    pytest.skip(_WRITE_PATH_MISSING)
-
     buyer_email = f"smoke+po{unique_suffix()}@example.com"
     offer = PublicOrderPage(buyer_page)
     offer.goto_share_url(_po_state["share_url"])
@@ -647,11 +632,8 @@ def test_buyer_order_with_email_lands_and_reopens_the_same_receipt(
 def test_tampered_receipt_token_renders_not_available(buyer_page: Page, _po_state: dict[str, str]) -> None:
     """A tampered receipt token yields the same generic not-available page.
 
-    Skipped: see :data:`_WRITE_PATH_MISSING` (slice-plan item 6 owns
     ``publicGetOrderReceipt``).
     """
-    pytest.skip(_WRITE_PATH_MISSING)
-
     receipt = PublicReceiptPage(buyer_page)
     bare_campaign_id = _po_state["campaign_id"].split("#", 1)[-1]
     receipt.goto_receipt_url(f"{base_url()}/r/{bare_campaign_id}/0001/deadbeefdeadbeefdeadbeefdeadbeef")
