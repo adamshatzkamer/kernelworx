@@ -432,7 +432,7 @@ class PublicOrderPage(BasePage):
 
     def confirmation_copy(self) -> str:
         """Return the confirmation-email copy from the success alert."""
-        return self.page.get_by_test_id("public-order-success").locator(".MuiAlert-message p").nth(1).inner_text()
+        return self.page.get_by_test_id("public-order-success").locator(".MuiAlert-message p").inner_text()
 
     # ------------------------------------------------------------------
     # Static page assertions

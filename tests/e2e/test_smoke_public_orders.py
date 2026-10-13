@@ -394,11 +394,17 @@ def test_unchecking_a_method_updates_the_buyer_view(
     settings.set_method(PLAIN_PAYMENT_METHOD, False)
     settings.save()
 
-    offer = PublicOrderPage(buyer_page)
-    offer.goto_share_url(_po_state["share_url"])
-    methods = offer.payment_method_names()
-    assert QR_PAYMENT_METHOD in methods, f"Still-allowlisted method vanished: {methods}"
-    assert PLAIN_PAYMENT_METHOD not in methods, f"Un-allowlisted method still reaches the buyer: {methods}"
+    try:
+        offer = PublicOrderPage(buyer_page)
+        offer.goto_share_url(_po_state["share_url"])
+        methods = offer.payment_method_names()
+        assert QR_PAYMENT_METHOD in methods, f"Still-allowlisted method vanished: {methods}"
+        assert PLAIN_PAYMENT_METHOD not in methods, f"Un-allowlisted method still reaches the buyer: {methods}"
+    finally:
+        # Restore the shared allowlist so later buyer tests see the fixture's
+        # two-method state.
+        settings.set_method(PLAIN_PAYMENT_METHOD, True)
+        settings.save()
 
 
 @pytest.mark.smoke
