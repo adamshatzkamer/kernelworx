@@ -1166,7 +1166,7 @@ type Mutation {
   ): PublicOrderSettings! @aws_cognito_user_pools
 
   # Public order mutations (API key auth mode; anonymous)
-  """Place a public order on a campaign whose share token is in the request. Returns the buyer's receipt. A never-enabled campaign, a disabled campaign, a bad token, and a campaign at its cap all return NOT_FOUND so probing cannot distinguish them."""
+  """Place a public order on a campaign whose share token is in the request. Returns the buyer's receipt. A never-enabled campaign, a disabled campaign, and a bad token all return NOT_FOUND so probing cannot distinguish them; a campaign at its order cap returns PUBLIC_ORDER_LIMIT_EXCEEDED."""
   publicCreateOrder(
     """The anonymous order input, carrying the campaign's share token."""
     input: PublicCreateOrderInput!

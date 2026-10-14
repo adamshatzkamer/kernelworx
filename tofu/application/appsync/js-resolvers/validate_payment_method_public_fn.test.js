@@ -25,6 +25,35 @@ describe('validate_payment_method_public request', () => {
         const req = request({ stash: { publicOrder: { paymentMethod: 'Venmo' }, ownerAccountId: 'o1' } });
         assert.deepStrictEqual(req, { operation: 'GetItem', key: { accountId: 'ACCOUNT#o1' }, consistentRead: true });
     });
+
+    // Cap-burn guard: a caller-input rejection must abort this step (before
+    // step 6's atomic ADD) so a rejected order never consumes the campaign's
+    // order cap.
+    it('rejects a soft-deleted catalog before any datastore call', () => {
+        const stash = {
+            catalog: { isDeleted: true, products: [{ productId: 'P1' }] },
+            publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P1', quantity: 1 }] },
+        };
+        assert.throws(() => request({ stash }), /INVALID_INPUT: Catalog is not available for this campaign/);
+    });
+
+    it('rejects an unknown productId before any datastore call, even for a global pseudo-method', () => {
+        const stash = {
+            catalog: { products: [{ productId: 'P1' }] },
+            publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P2', quantity: 1 }] },
+        };
+        assert.throws(() => request({ stash }), /INVALID_INPUT: Product P2 not found in catalog/);
+    });
+
+    it('passes a catalog-backed valid order through to the normal flow', () => {
+        const stash = {
+            catalog: { products: [{ productId: 'P1' }] },
+            publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P1', quantity: 2 }] },
+        };
+        const req = request({ stash });
+        assert.strictEqual(stash.skipPaymentMethodValidation, true);
+        assert.deepStrictEqual(req, { operation: 'GetItem', key: { accountId: 'NOOP' } });
+    });
 });
 
 describe('validate_payment_method_public response', () => {

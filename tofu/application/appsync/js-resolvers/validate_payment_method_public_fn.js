@@ -28,6 +28,24 @@ export function request(ctx) {
         return null;
     }
 
+    const catalog = ctx.stash ? ctx.stash.catalog : null;
+    if (catalog) {
+        if (catalog.isDeleted === true) {
+            util.error('Catalog is not available for this campaign', 'INVALID_INPUT');
+            return null;
+        }
+        const productsMap = {};
+        for (const product of catalog.products || []) {
+            productsMap[product.productId] = product;
+        }
+        for (const lineItem of mapped.lineItems || []) {
+            if (!productsMap[lineItem.productId]) {
+                util.error('Product ' + lineItem.productId + ' not found in catalog', 'INVALID_INPUT');
+                return null;
+            }
+        }
+    }
+
     if (GLOBAL_PAYMENT_METHODS.includes(paymentMethod.toLowerCase())) {
         ctx.stash.skipPaymentMethodValidation = true;
         return {
