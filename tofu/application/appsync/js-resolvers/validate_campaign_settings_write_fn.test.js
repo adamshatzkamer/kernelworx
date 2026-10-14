@@ -160,3 +160,55 @@ describe('validate_campaign_settings_write_fn response', () => {
         assert.throws(() => response(ctx), /DynamoDB:ThrottlingException: Throttled/);
     });
 });
+
+// Consistent-read precedence (KW-PUBLIC-ORDERS-CAMPAIGN-CORE-1): the publish-
+// gating decision must come from the step's own strongly consistent GetItem,
+// not from the locator's eventually-consistent GSI copy, which can still
+// project the state the owner just changed during a quick disable/re-enable.
+describe('validate_campaign_settings_write_fn consistent-read precedence', () => {
+    it('rejects a re-enable over an inactive campaign even when the stale GSI copy looks enforcing', () => {
+        const locator = {
+            ...LOCATOR,
+            isActive: true,
+            catalogId: 'CATALOG#cat-1',
+            publicOrders: { enabled: true, token: 'tok-1' }
+        };
+        const consistent = {
+            profileId: 'PROFILE#p1',
+            campaignId: 'CAMPAIGN#c1',
+            isActive: false,
+            catalogId: 'CATALOG#cat-1',
+            publicOrders: { enabled: false, token: 'tok-1' }
+        };
+        const ctx = ctxFor(ENABLE_INPUT, locator);
+        ctx.result = consistent;
+
+        assert.throws(() => response(ctx), /INVALID_INPUT: Public orders can only be enabled on an active campaign/);
+        assert.strictEqual(ctx.stash.publicSettingsCatalogId, undefined);
+        assert.strictEqual(ctx.stash.publicSettingsCampaign, consistent);
+    });
+
+    it('passes an enable when the stale GSI copy looks inactive but the consistent copy is active', () => {
+        const locator = {
+            ...LOCATOR,
+            isActive: false,
+            catalogId: 'CATALOG#cat-1',
+            publicOrders: { enabled: false }
+        };
+        const consistent = {
+            profileId: 'PROFILE#p1',
+            campaignId: 'CAMPAIGN#c1',
+            isActive: true,
+            catalogId: 'CATALOG#cat-1',
+            publicOrders: { enabled: false }
+        };
+        const ctx = ctxFor(ENABLE_INPUT, locator);
+        ctx.result = consistent;
+
+        const campaign = response(ctx);
+
+        assert.strictEqual(campaign, consistent);
+        assert.strictEqual(ctx.stash.publicSettingsCatalogId, 'CATALOG#cat-1');
+        assert.strictEqual(ctx.stash.publicSettingsCampaign, consistent);
+    });
+});

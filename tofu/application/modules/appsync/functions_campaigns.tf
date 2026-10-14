@@ -394,11 +394,14 @@ resource "aws_appsync_function" "lookup_campaign_public_settings" {
   code = file("${local.js_resolvers_dir}/lookup_campaign_public_settings_fn.js")
 }
 
-# Campaign gate of updateCampaignPublicOrderSettings: the campaign must exist
-# under the located partition key and, when the save is actually publishing
-# (enabling from an off state), must be active and carry a catalog. Disable,
-# method-list and rotate-token saves stay allowed over an inactive campaign so
-# the seller always has a working off switch and token revocation path.
+# Campaign gate of updateCampaignPublicOrderSettings: a caller who does not
+# own the profile is refused FORBIDDEN by verify_public_settings_owner two
+# steps earlier, so the consistent GetItem miss here answers NOT_FOUND only
+# for a campaign deleted between the locator read and this read. When the save
+# is actually publishing (enabling from an off state), the campaign must be
+# active and carry a catalog. Disable, method-list and rotate-token saves stay
+# allowed over an inactive campaign so the seller always has a working off
+# switch and token revocation path.
 resource "aws_appsync_function" "validate_campaign_settings_write" {
   api_id      = aws_appsync_graphql_api.main.id
   data_source = aws_appsync_datasource.campaigns.name

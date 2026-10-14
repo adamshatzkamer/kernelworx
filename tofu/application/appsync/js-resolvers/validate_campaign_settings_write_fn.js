@@ -10,10 +10,11 @@ import {
 // CampaignsDS validation step of the updateCampaignPublicOrderSettings pipeline
 // (KW-PUBLIC-ORDERS-CAMPAIGN-CORE-1). One strongly consistent GetItem on the
 // campaign item, keyed by the partition key the locator step learned from the
-// GSI, so a campaign belonging to a DIFFERENT profile is a GetItem miss and
-// answers with the same NOT_FOUND as a campaign that does not exist - never a
-// cross-account read and never an existence oracle for other accounts'
-// campaigns.
+// GSI. A caller who does not own the profile is refused FORBIDDEN by
+// verify_public_settings_owner two steps before this GetItem runs, so the
+// GetItem miss answers NOT_FOUND only for a campaign deleted between the
+// locator read and this consistent read - never a cross-account read and
+// never an existence oracle for other accounts' campaigns.
 //
 // The read also re-confirms the campaign after the ownership pair ran, and it
 // ENFORCES only when the request switches the feature on from an off state (see
@@ -52,9 +53,9 @@ export function response(ctx) {
 
     const campaign = ctx.result;
     if (!campaign) {
-        // Covers a foreign-profile campaign and a campaign deleted between the
-        // locator read and here; the message never hints whether the id exists
-        // elsewhere.
+        // Only a campaign deleted between the locator read and this consistent
+        // read can miss: ownership was already decided by
+        // verify_public_settings_owner two steps earlier.
         util.error('Campaign not found', 'NOT_FOUND');
         return;
     }
