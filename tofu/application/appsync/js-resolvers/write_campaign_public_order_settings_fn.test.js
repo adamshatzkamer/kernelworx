@@ -185,6 +185,18 @@ describe('write_campaign_public_order_settings_fn request', () => {
         assert.strictEqual(blob.ackVersion, 1);
     });
 
+    it('re-stamps the acknowledgement to the last accepted value on a re-save of an already-enabled campaign', () => {
+        const blob = blobFor(ENABLE_INPUT, {
+            enabled: true,
+            token: 'tok-1',
+            ackVersion: 1,
+            acknowledgedAt: '2023-01-01T00:00:00Z'
+        });
+
+        assert.strictEqual(blob.acknowledgedAt, '2024-01-01T00:00:00Z');
+        assert.strictEqual(blob.ackVersion, 1);
+    });
+
     it('refuses to build a key when no campaign was located', () => {
         const ctx = ctxFor(ENABLE_INPUT, undefined);
         delete ctx.stash.profileId;

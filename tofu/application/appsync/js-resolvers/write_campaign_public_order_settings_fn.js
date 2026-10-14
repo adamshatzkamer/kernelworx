@@ -87,9 +87,11 @@ export function request(ctx) {
     if (token) {
         blob.token = token;
     }
-    // The acknowledgement is evidence, so it is stamped only when the owner
-    // actually accepted it. A re-save with a current ackVersion leaves the
-    // original timestamp alone.
+    // acknowledgedAt/ackVersion record the last acceptance the API recorded:
+    // they are (re)stamped whenever a save arrives with enabled:true and
+    // acknowledgementsAccepted:true, whatever the stored version says. Whether
+    // the flag is required at all is the re-prompt rule's job
+    // (acknowledgementIsBehind), not this stamp's.
     if (enabled && args.acknowledgementsAccepted === true) {
         blob.acknowledgedAt = util.time.nowISO8601();
         blob.ackVersion = ACK_VERSION;
