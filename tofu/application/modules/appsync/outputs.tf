@@ -26,8 +26,14 @@ output "api_arn" {
 # requires a valid per-campaign bearer token. It must be readable from
 # `tofu output -json` so scripts/generate_integration_env.py can write the
 # TEST_APPSYNC_API_KEY / VITE_APPSYNC_API_KEY managed keys.
+#
+# The provider marks `key` sensitive, and OpenTofu rejects any root-module
+# output that exports a sensitive value without `sensitive = true`. Since this
+# key is public by design, nonsensitive() strips the mark here, at the one
+# module boundary every environment's `appsync_api_key` output reads through,
+# so all of them stay unmasked for `tofu output -raw` / `-json` consumers.
 output "api_key" {
-  value       = aws_appsync_api_key.public_orders.key
+  value       = nonsensitive(aws_appsync_api_key.public_orders.key)
   description = "AppSync API key for the public-orders (@aws_api_key) fields"
 }
 
