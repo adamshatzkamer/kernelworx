@@ -766,7 +766,7 @@ export type GqlPublicOrderOffer = {
   campaignName: Scalars['String']['output'];
   /** The allowlisted payment methods that still exist on the account, each with a short-lived pre-signed QR image URL when a QR was uploaded. */
   paymentMethods: Array<GqlPublicPaymentMethod>;
-  /** The anchor catalog's products in catalog order (v1: the full active catalog, unpaginated). */
+  /** The campaign's catalog's products in catalog order (v1: the full active catalog, unpaginated). */
   products: Array<GqlPublicProduct>;
   /** The seller profile's display name. */
   sellerName: Scalars['String']['output'];

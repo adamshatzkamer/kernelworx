@@ -504,7 +504,7 @@ type PublicOrderOffer @aws_api_key {
   campaignId: ID!
   """The campaign's display name."""
   campaignName: String!
-  """The anchor catalog's products in catalog order (v1: the full active catalog, unpaginated)."""
+  """The campaign's catalog's products in catalog order (v1: the full active catalog, unpaginated)."""
   products: [PublicProduct!]!
   """The allowlisted payment methods that still exist on the account, each with a short-lived pre-signed QR image URL when a QR was uploaded."""
   paymentMethods: [PublicPaymentMethod!]!

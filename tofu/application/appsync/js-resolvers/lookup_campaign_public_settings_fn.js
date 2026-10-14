@@ -10,8 +10,9 @@ import { stashedCampaignId, stashedProfileId } from './lib/public_settings.js';
 //
 // The read is keyed by the partition key the locator step learned from the GSI,
 // so it runs against the base table and cannot lag the owner's previous save.
-// Keying it that way also means a campaignId belonging to another profile is a
-// GetItem miss rather than a cross-account read.
+// A caller who does not own the profile is refused FORBIDDEN by
+// verify_public_settings_owner two steps before this GetItem runs, so this
+// read is never a cross-account read.
 //
 // A missing row here is NOT_FOUND, not a null settings object: the campaign was
 // located moments earlier in the same pipeline, so a miss means it was deleted
