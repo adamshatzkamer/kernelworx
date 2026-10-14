@@ -6,7 +6,6 @@ import {
     PUBLIC_METHOD_UNAVAILABLE,
     PUBLIC_ORDER_CAP,
     PUBLIC_ORDER_UNAVAILABLE,
-    canonicalCampaignId,
     composePublicOrderReceipt,
     isConditionFailure,
     validateAndMapPublicOrderInput,
@@ -160,13 +159,5 @@ describe('composePublicOrderReceipt', () => {
             composePublicOrderReceipt({ orderId: 'ORDER#c1#s', receiptToken: 't', campaignId: 'CAMPAIGN#' }).receiptUrl,
             null
         );
-    });
-});
-
-describe('canonicalCampaignId', () => {
-    it('normalizes a bare id and passes a canonical one through', () => {
-        assert.strictEqual(canonicalCampaignId('c1'), 'CAMPAIGN#c1');
-        assert.strictEqual(canonicalCampaignId('CAMPAIGN#c1'), 'CAMPAIGN#c1');
-        assert.strictEqual(canonicalCampaignId(null), null);
     });
 });

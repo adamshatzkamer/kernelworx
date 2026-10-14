@@ -1,5 +1,5 @@
 import { util } from '@aws-appsync/utils';
-import { normalizeId, stripIdPrefix } from './ids.js';
+import { stripIdPrefix } from './ids.js';
 import { validateAddress, validatePhone } from './validation.js';
 
 // Shared contract for the publicCreateOrder pipeline (#679 write slice,
@@ -299,11 +299,4 @@ export function composePublicOrderReceipt(order) {
         buyerEmailProvided: typeof order.customerEmail === 'string' && order.customerEmail !== '',
         confirmationEmailSent: false
     };
-}
-
-// The canonical campaign id the create pipeline works from: the offer echoed a
-// bare id, the stored anchor is canonical, and both normalize to the same
-// CAMPAIGN# form before any comparison.
-export function canonicalCampaignId(value) {
-    return normalizeId(value, 'CAMPAIGN#');
 }

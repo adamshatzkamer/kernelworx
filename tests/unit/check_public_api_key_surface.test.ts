@@ -27,9 +27,9 @@ import { fileURLToPath } from "url";
  * no-directive field or type is reachable only through the default Cognito mode),
  * and the rule that marking the ROOT FIELD is not sufficient - a marked root
  * returning an unmarked object type resolves the root but DENIES its sub-fields.
- * The live assertions for the first two live in
- * `tests/integration/resolvers/publicAuthModes.integration.test.ts`; the closure
- * walk below is what makes the third rule enforced statically.
+ * The live assertions for the first two are deferred to the later
+ * integration/E2E slice of the public-orders plan (no such file exists yet);
+ * the closure walk below is what makes the third rule enforced statically now.
  */
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -342,8 +342,8 @@ describe("public API key directive surface (schema.graphql)", () => {
   });
 
   // GAP - do not fill in with an assumption. The multi-auth spike measured the
-  // field and type rules (pinned above and in
-  // tests/integration/resolvers/publicAuthModes.integration.test.ts) but NOT the
+  // field and type rules (pinned above; live-run assertions are deferred to the
+  // later integration/E2E slice of the public-orders plan) but NOT the
   // input-type rule, so it stays unpinned until someone verifies it.
   test.skip("input types need no auth directive (still unverified)", () => {});
 });
