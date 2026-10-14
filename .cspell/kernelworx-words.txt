@@ -121,6 +121,7 @@ endswith
 env
 errorMessage
 EEYQ
+elif
 esac
 esbuild
 eslint

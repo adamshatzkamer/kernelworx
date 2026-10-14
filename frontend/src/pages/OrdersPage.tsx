@@ -234,7 +234,13 @@ interface OrdersTableProps {
   onConfirmPayment: (order: GqlOrder) => void;
 }
 
-const OrdersTable: React.FC<OrdersTableProps> = ({ orders, hasWritePermission, onEdit, onDelete, onConfirmPayment }) => (
+const OrdersTable: React.FC<OrdersTableProps> = ({
+  orders,
+  hasWritePermission,
+  onEdit,
+  onDelete,
+  onConfirmPayment,
+}) => (
   <TableContainer component={Paper}>
     <Table
       size="small"
@@ -469,8 +475,8 @@ export const OrdersPage: React.FC = () => {
         loadingLabel="Confirming..."
       >
         <Typography>
-          Mark the payment for {confirmTarget?.customerName} as received? This is permanent: a confirmed order cannot
-          be moved back to pending.
+          Mark the payment for {confirmTarget?.customerName} as received? This is permanent: a confirmed order cannot be
+          moved back to pending.
         </Typography>
       </ConfirmDialog>
     </>
