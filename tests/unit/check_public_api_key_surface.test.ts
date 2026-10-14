@@ -38,19 +38,29 @@ const SCHEMA_PATH = join(__dirname, "..", "..", "tofu", "application", "schema",
 const API_KEY = "aws_api_key";
 const COGNITO = "aws_cognito_user_pools";
 
-/** The root fields an API-key caller may invoke (slice 1: the offer read only).
- * The create and receipt roots arrive with the order write and receipt slices:
- * a root field declared without a resolver fails every query against it, so
- * declaring them early would be a defect, not a head start. */
-const PUBLIC_ROOT_FIELDS = new Set(["publicGetOrderOffer"]);
+/** The root fields an API-key caller may invoke. The offer read is slice 1;
+ * the create and receipt roots arrive with the order write and receipt slices
+ * (this slice adds the create root; the receipt root is wired to the Lambda
+ * handler the same way). Every root carries a resolver; a root declared
+ * without one would fail every query against it, so the set stays exact. */
+const PUBLIC_ROOT_FIELDS = new Set(["publicGetOrderOffer", "publicGetOrderReceipt", "publicCreateOrder"]);
 
 /**
  * Every object type reachable from a public root field must carry the directive
- * at TYPE level - that is the rule, not a hand-listed count. PublicProduct and
- * PublicLineItem exist precisely because Catalog/Product carry
- * `@aws_cognito_user_pools` and LineItem carries nothing.
+ * at TYPE level - that is the rule, not a hand-listed count. PublicProduct,
+ * PublicLineItem, PublicOrderReceipt and PublicOrderReceiptLookup exist precisely
+ * because Catalog/Product and the authenticated Order type carry
+ * `@aws_cognito_user_pools` (or nothing) and cannot be returned to an API-key
+ * caller.
  */
-const PUBLIC_TYPES = new Set(["PublicOrderOffer", "PublicProduct", "PublicPaymentMethod"]);
+const PUBLIC_TYPES = new Set([
+  "PublicOrderOffer",
+  "PublicProduct",
+  "PublicPaymentMethod",
+  "PublicLineItem",
+  "PublicOrderReceipt",
+  "PublicOrderReceiptLookup",
+]);
 
 /** Owner-only settings fields: explicit Cognito directive so a future third auth
  * mode cannot silently widen them. Campaign-keyed (#679 rev 7). */
