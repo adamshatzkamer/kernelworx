@@ -86,6 +86,7 @@ export const ORDER_FRAGMENT = gql`
     notes
     createdAt
     updatedAt
+    status
   }
 `;
 

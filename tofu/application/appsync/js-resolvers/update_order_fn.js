@@ -2,6 +2,46 @@ import { util } from '@aws-appsync/utils';
 import { validatePhone, validateAddress } from './lib/validation.js';
 import { enrichLineItems } from './lib/line_items.js';
 
+// The order lifecycle slice: the seller's "payment confirmed" transition.
+// Deliberately narrow, and the only lifecycle write this resolver honors:
+// CONFIRMED only in v1, PUBLIC orders only, one-way (an order already
+// CONFIRMED is refused, so there is no path back). Authorization is NOT
+// re-derived here: the updateOrder pipeline already runs the two-phase
+// ownership read (verify_profile_write_access + _step2, #438) and
+// check_share_permissions, which is what restricts this to the profile owner
+// or a WRITE-share collaborator. Adding a second identity check here would be
+// a second authorization architecture, not a guard.
+//
+// status, receiptToken and orderSource are never written by any other branch
+// of this resolver, so an ordinary field edit can never clear them.
+function applyStatusUpdate(input, order, updates, exprValues) {
+    // Key presence, not the value: this runtime can surface an omitted nullable
+    // input field as a null value (the #506 lesson from paymentMethod), and an
+    // explicit null must never clear a CONFIRMED order's status.
+    if (!Object.hasOwn(input, 'status')) {
+        return true;
+    }
+    if (input.status === null) {
+        util.error('status cannot be null; omit the field to leave the status unchanged', 'INVALID_INPUT');
+        return false;
+    }
+    if (input.status !== 'CONFIRMED') {
+        util.error('Only CONFIRMED can be set on an order status', 'INVALID_INPUT');
+        return false;
+    }
+    if (!order || order.orderSource !== 'PUBLIC') {
+        util.error('status can only be set on public orders', 'INVALID_INPUT');
+        return false;
+    }
+    if (order.status === 'CONFIRMED') {
+        util.error('Order is already confirmed; there is no path back from CONFIRMED', 'INVALID_INPUT');
+        return false;
+    }
+    updates.push('status = :status');
+    exprValues[':status'] = input.status;
+    return true;
+}
+
 function validateOrderDate(orderDate) {
     if (!orderDate || typeof orderDate !== 'string' || !orderDate.trim()) {
         util.error('Order date is required', 'INVALID_INPUT');
@@ -98,6 +138,10 @@ export function request(ctx) {
     if (input.notes !== undefined) {
         updates.push('notes = :notes');
         exprValues[':notes'] = input.notes;
+    }
+
+    if (!applyStatusUpdate(input, order, updates, exprValues)) {
+        return;
     }
 
     updates.push('updatedAt = :updatedAt');
