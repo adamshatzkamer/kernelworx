@@ -302,20 +302,26 @@ class TestRedactSecrets:
 class TestHandleReceipt:
     def test_success_payload(self, orders_table: Any, lambda_context: Any) -> None:
         orders_table.put_item(Item=_order())
-        result = handle_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context)
+        result = handle_receipt(
+            _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context
+        )
         assert result["orderId"] == "ORDER#c1#s1"
         # The origin/dev confirmationEmailSent flag was deliberately dropped: email
         # delivery is not wired in this slice, so the receipt omits the field.
         assert "confirmationEmailSent" not in result
 
     def test_not_found_payload(self, orders_table: Any, lambda_context: Any) -> None:
-        result = handle_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context)
+        result = handle_receipt(
+            _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context
+        )
         assert result["__isError"] is True
         assert result["errorCode"] is ErrorCode.NOT_FOUND
 
     def test_unexpected_error_payload(self, orders_table: Any, lambda_context: Any) -> None:
         with patch("src.handlers.public_orders_receipt._build_receipt", side_effect=RuntimeError("kaput")):
-            result = handle_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context)
+            result = handle_receipt(
+                _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context
+            )
         assert result["__isError"] is True
         assert result["errorCode"] is ErrorCode.INTERNAL_ERROR
 
@@ -325,5 +331,7 @@ class TestOrderStatusBackCompat:
         order = _order()
         del order["status"]
         orders_table.put_item(Item=order)
-        result = handle_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context)
+        result = handle_receipt(
+            _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context
+        )
         assert result["status"] == "NEW"

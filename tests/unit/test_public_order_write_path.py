@@ -52,6 +52,5 @@ def test_payment_validation_precedes_the_cap_increment() -> None:
 def test_cap_increment_precedes_the_order_write() -> None:
     pipeline = _pipeline(MUTATION_RESOLVERS, "public_create_order")
     assert pipeline.index(INCREMENT) < pipeline.index(WRITE), (
-        "the increment's ConditionExpression is the authoritative cap bound and must "
-        "gate the PutItem, not trail it"
+        "the increment's ConditionExpression is the authoritative cap bound and must gate the PutItem, not trail it"
     )

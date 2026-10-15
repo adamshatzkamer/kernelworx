@@ -93,7 +93,9 @@ def assert_within_public_orders_role_scope(recorder: ApiCallRecorder) -> None:
     assert recorder.dynamodb_calls, "expected the handler to issue DynamoDB calls"
     operations = {op for op, _ in recorder.dynamodb_calls}
     tables = {table for _, table in recorder.dynamodb_calls}
-    assert operations <= ALLOWED_DYNAMODB_ACTIONS, f"unexpected DynamoDB actions: {operations - ALLOWED_DYNAMODB_ACTIONS}"
+    assert operations <= ALLOWED_DYNAMODB_ACTIONS, (
+        f"unexpected DynamoDB actions: {operations - ALLOWED_DYNAMODB_ACTIONS}"
+    )
     assert tables <= GET_TABLES, f"handler touched tables outside the public-orders role scope: {tables - GET_TABLES}"
     queried = {table for op, table in recorder.dynamodb_calls if op == "Query"}
     assert queried <= QUERY_TABLES, f"Query outside the locator tables: {queried - QUERY_TABLES}"
@@ -247,7 +249,9 @@ class TestOfferScope:
         _seed_offer_read(campaigns_table, profiles_table, catalogs_table, accounts_table)
         api_calls.attach()
 
-        result = public_orders_handler(_event({"campaignId": "c1", "token": TOKEN}, "publicGetOrderOffer"), lambda_context)
+        result = public_orders_handler(
+            _event({"campaignId": "c1", "token": TOKEN}, "publicGetOrderOffer"), lambda_context
+        )
 
         assert result["campaignId"] == "c1"
         assert result["sellerName"] == "My Profile"
@@ -272,7 +276,10 @@ class TestReceiptScope:
         api_calls.attach()
 
         result = public_orders_handler(
-            _event({"campaignId": "c1", "orderSuffix": ORDER_SUFFIX, "receiptToken": RECEIPT_TOKEN}, "publicGetOrderReceipt"),
+            _event(
+                {"campaignId": "c1", "orderSuffix": ORDER_SUFFIX, "receiptToken": RECEIPT_TOKEN},
+                "publicGetOrderReceipt",
+            ),
             lambda_context,
         )
 

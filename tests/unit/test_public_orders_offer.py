@@ -140,11 +140,16 @@ class TestProfileHelpers:
         assert offer._consistent_profile(ACCOUNT_ID, PROFILE_ID) is None
 
     def test_resolve_ambiguous_no_owners(self, profiles_table: Any) -> None:
-        assert offer._resolve_ambiguous_projection([{"profileId": PROFILE_ID}], PROFILE_ID, offer.get_logger(__name__)) is None
+        assert (
+            offer._resolve_ambiguous_projection([{"profileId": PROFILE_ID}], PROFILE_ID, offer.get_logger(__name__))
+            is None
+        )
 
     def test_resolve_ambiguous_single(self, profiles_table: Any) -> None:
         profiles_table.put_item(Item=_profile_item())
-        result = offer._resolve_ambiguous_projection([{"ownerAccountId": ACCOUNT_ID}], PROFILE_ID, offer.get_logger(__name__))
+        result = offer._resolve_ambiguous_projection(
+            [{"ownerAccountId": ACCOUNT_ID}], PROFILE_ID, offer.get_logger(__name__)
+        )
         assert result == _profile_item()
 
     def test_resolve_ambiguous_multiple(self, profiles_table: Any) -> None:
@@ -240,7 +245,9 @@ class TestCoercionHelpers:
         assert _public_product({"productName": "N", "price": 1}) is None  # no product id
         assert _public_product({"productId": "p", "price": 1}) is None  # no name
         assert _public_product({"productId": "p", "productName": "N", "price": "nope"}) is None
-        assert _public_product({"productId": "p", "productName": "N", "price": 1, "description": 7, "sortOrder": None}) == {
+        assert _public_product(
+            {"productId": "p", "productName": "N", "price": 1, "description": 7, "sortOrder": None}
+        ) == {
             "productId": "p",
             "productName": "N",
             "price": 1.0,
@@ -264,7 +271,10 @@ class TestCoercionHelpers:
 class TestPaymentMethods:
     def test_stored_methods(self, accounts_table: Any) -> None:
         accounts_table.put_item(
-            Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}, {"name": "cash"}, {"name": 7}]}}
+            Item={
+                "accountId": ACCOUNT_ID,
+                "preferences": {"paymentMethods": [{"name": "Venmo"}, {"name": "cash"}, {"name": 7}]},
+            }
         )
         stored = _stored_methods(ACCOUNT_ID)
         assert "venmo" in stored and "cash" in stored and 7 not in stored
@@ -332,7 +342,12 @@ class TestPaymentMethods:
         assert [m["name"] for m in result] == ["Venmo", "cash"]
 
     def test_public_payment_methods_allowlist_not_a_list(self, accounts_table: Any) -> None:
-        assert _public_payment_methods({"ownerAccountId": ACCOUNT_ID}, {"allowedPaymentMethods": "nope"}, offer.get_logger(__name__)) == []
+        assert (
+            _public_payment_methods(
+                {"ownerAccountId": ACCOUNT_ID}, {"allowedPaymentMethods": "nope"}, offer.get_logger(__name__)
+            )
+            == []
+        )
 
 
 class TestBuildOffer:
@@ -340,7 +355,13 @@ class TestBuildOffer:
     def _seed(self, campaigns_table: Any, profiles_table: Any, catalogs_table: Any, accounts_table: Any) -> None:
         campaigns_table.put_item(Item=_campaign_item(_settings()))
         profiles_table.put_item(Item=_profile_item())
-        catalogs_table.put_item(Item={"catalogId": CATALOG_ID, "name": "Cat", "products": [{"productId": "p", "productName": "W", "price": 5, "sortOrder": 1}]})
+        catalogs_table.put_item(
+            Item={
+                "catalogId": CATALOG_ID,
+                "name": "Cat",
+                "products": [{"productId": "p", "productName": "W", "price": 5, "sortOrder": 1}],
+            }
+        )
         accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
 
     def test_success(self) -> None:
@@ -451,7 +472,10 @@ class TestHandlerDispatch:
                 "lineItems": [],
             }
         )
-        result = handler(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}, "publicGetOrderReceipt"), lambda_context)
+        result = handler(
+            _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}, "publicGetOrderReceipt"),
+            lambda_context,
+        )
         assert result["orderId"] == "ORDER#c1#s1"
 
     def test_unknown_field_is_refused(self, lambda_context: Any) -> None:
