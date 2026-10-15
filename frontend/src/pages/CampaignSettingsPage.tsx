@@ -33,9 +33,15 @@ import {
   LIST_MY_CATALOGS,
   LIST_CAMPAIGNS_BY_PROFILE,
 } from '../lib/graphql';
+import { useCampaignPublicOrderSettings } from '../hooks/useCampaignPublicOrderSettings';
 import { LoadingState } from '../components/LoadingState';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { UnitInfoSection } from '../components/UnitInfoSection';
+import { PublicSettingsShareSection } from '../components/public/PublicSettingsShareSection';
+import { PublicSettingsCapNotice } from '../components/public/PublicSettingsCapNotice';
+import { PublicSettingsAckCheckboxes } from '../components/public/PublicSettingsAckCheckboxes';
+import { PublicSettingsMethodChecklist } from '../components/public/PublicSettingsMethodChecklist';
+import { PublicSettingsActions } from '../components/public/PublicSettingsActions';
 import { ensureCampaignId, ensureCatalogId, ensureProfileId, toUrlId } from '../lib/ids';
 import { dateToISO } from '../lib/date-utils';
 import type { GqlCampaign, GqlCatalog } from '../types';
@@ -318,6 +324,22 @@ export const CampaignSettingsPage: React.FC = () => {
   const myCatalogs = getMyCatalogs(myCatalogsData);
   const allCatalogs = getAllCatalogs(publicCatalogs, myCatalogs);
 
+  // Fetch public order settings
+  const {
+    settings: publicOrderSettings,
+    loading: publicOrderLoading,
+    saved: publicOrderSaved,
+    dirty: publicOrderDirty,
+    draft: publicOrderDraft,
+    setField: setPublicOrderField,
+    save: savePublicOrderSettings,
+    rotateToken: rotatePublicOrderToken,
+    disable: disablePublicOrderSettings,
+    enable: enablePublicOrderSettings,
+    acknowledgementsAccepted: publicOrderAcknowledgementsAccepted,
+    setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted,
+  } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
+
   // Initialize form when campaign loads
   React.useEffect(() => {
     const c = getCampaign(campaignData);
@@ -543,6 +565,50 @@ export const CampaignSettingsPage: React.FC = () => {
           onExpandChange={setUnitExpanded}
           readOnly={hasSharedCampaignCode(campaign)}
         />
+      </Paper>
+
+      {/* Public Orders */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Public Orders
+        </Typography>
+        <>
+          {publicOrderSettings && !publicOrderLoading && (
+            <>
+              <PublicSettingsShareSection
+                campaignId={publicOrderSettings.campaignId}
+                shareToken={publicOrderSettings.token}
+                campaignName={publicOrderSettings.campaignName}
+              />
+              <PublicSettingsCapNotice
+                publicOrderCount={publicOrderSettings.publicOrderCount}
+                maxOrders={500}
+              />
+              <Stack spacing={3}>
+                <PublicSettingsAckCheckboxes
+                  acknowledgementsAccepted={publicOrderAcknowledgementsAccepted}
+                  onChange={setPublicOrderAcknowledgementsAccepted}
+                  disabled={updating || !publicOrderSettings.enabled}
+                />
+                <PublicSettingsMethodChecklist
+                  allowedPaymentMethods={publicOrderSettings.allowedPaymentMethods}
+                  onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
+                  disabled={updating || !publicOrderSettings.enabled}
+                />
+                <PublicSettingsActions
+                  enabled={publicOrderSettings.enabled}
+                  onToggle={setPublicOrderField.bind(null, 'enabled')}
+                  onRotate={rotatePublicOrderToken}
+                  onDisable={disablePublicOrderSettings}
+                  onEnable={enablePublicOrderSettings}
+                  saving={updating}
+                  disabled={!publicOrderSettings}
+                />
+              </Stack>
+            </>
+          )}
+          {!publicOrderSettings && publicOrderLoading && <LoadingState minHeight="200px" />}
+        </>
       </Paper>
 
       {/* Danger Zone */}

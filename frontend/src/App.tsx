@@ -76,7 +76,12 @@ const PaymentMethodsPage = lazyRoute(() =>
 const HomePage = lazyRoute(() => import('./pages/HomePage').then((m) => ({ default: m.HomePage })));
 const StoryPage = lazyRoute(() => import('./pages/StoryPage').then((m) => ({ default: m.StoryPage })));
 
-function ScrollToHash() {
+const PublicOrderPage = lazyRoute(() =>
+  import('./pages/PublicOrderPage').then((m) => ({ default: m.PublicOrderPage })));
+const PublicReceiptPage = lazyRoute(() =>
+  import('./pages/PublicReceiptPage').then((m) => ({ default: m.PublicReceiptPage })));
+
+function ScrollToHash() {)
   const { pathname, hash } = useLocation();
 
   useEffect(() => {
@@ -107,7 +112,10 @@ function PageLoader() {
   );
 }
 
-function PublicRoute({ children }: { children: React.ReactNode }) {
+function PublicOrderApollo({ children }: { children: React.ReactNode }) {
+  return <ApolloProvider client={publicApolloClient}>{children}</ApolloProvider>;
+
+function PublicRoute({ children }: { children: React.ReactNode }) {)
   const { pathname } = useLocation();
   return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
 }
@@ -209,6 +217,28 @@ function App() {
                     <ProtectedAppRoute>
                       <AcceptInvitePage />
                     </ProtectedAppRoute>
+                  }
+                />
+
+                {/* Public order pages (API-key auth mode; the URL token is the authorization) */}
+                <Route
+                  path="/o/:campaignId/:token"
+                  element={
+                    <PublicRoute>
+                      <PublicOrderApollo>
+                        <PublicOrderPage />
+                      </PublicOrderApollo>
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/r/:campaignId/:orderSuffix/:receiptToken"
+                  element={
+                    <PublicRoute>
+                      <PublicOrderApollo>
+                        <PublicReceiptPage />
+                      </PublicOrderApollo>
+                    </PublicRoute>
                   }
                 />
 
