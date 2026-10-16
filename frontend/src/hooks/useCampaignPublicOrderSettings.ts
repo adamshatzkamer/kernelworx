@@ -41,7 +41,7 @@ import {
   pickUpdateCampaignPublicOrderSettingsDoc,
 } from '../lib/graphql';
 import { ensureCampaignId } from '../lib/ids';
-import type { GqlGetCampaignPublicOrderSettingsQuery, GqlGetMyPaymentMethodsQuery, GqlUpdateCampaignPublicOrderSettingsInput, GqlUpdateCampaignPublicOrderSettingsMutation, GqlCampaign, GqlCatalog } from '../types/graphql-generated';
+import type { GqlGetCampaignPublicOrderSettingsQuery, GqlGetMyPaymentMethodsQuery, GqlUpdateCampaignPublicOrderSettingsInput, GqlUpdateCampaignPublicOrderSettingsMutation, GqlCampaign } from '../types/graphql-generated';
 
 export const PUBLIC_ORDER_ACK_VERSION = 1;
 
@@ -124,9 +124,9 @@ interface UseCampaignPublicOrderSettingsArgs {
 }
 
 export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublicOrderSettingsArgs) {
-  const dbCampaignId = ensureCampaignId(campaignId);
+  const dbCampaignId = ensureCampaignId(campaignId)!;
   const apolloClient = useApolloClient();
-  const [updating, setUpdating] = useState(false);
+  const [, setUpdating] = useState(false);
   const [settings, setSettings] = useState<PublicOrderSettingsView | null>(null);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -224,7 +224,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
           allowedPaymentMethods: updated.allowedPaymentMethods ?? [],
           acknowledgedAt: updated.acknowledgedAt ?? null,
           ackVersion: updated.acknowledgedAt !== undefined && updated.acknowledgedAt !== null ? PUBLIC_ORDER_ACK_VERSION : null,
-          publicOrderCount: updated.publicOrderCount,
+          publicOrderCount: updated.publicOrderCount ?? 0,
           campaignId: updated.campaignId,
           campaignName: updated.campaignName,
           campaignState: updated.campaignState,

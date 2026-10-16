@@ -86,8 +86,8 @@ export function validatePublicOrderForm(form: PublicOrderFormState): {
   if (!form.lastName.trim()) {
     errors.lastName = 'Last name is required';
   }
-  if (!form.phone.trim()) {
-    errors.phone = 'Phone number is required';
+  if (!form.phone.trim() && !addressStarted(form.address)) {
+    errors.phone = 'Phone number or a complete address is required';
   }
 
   // Validate address if phone is not provided (phone or address required)

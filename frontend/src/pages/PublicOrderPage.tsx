@@ -139,7 +139,7 @@ const FormView: React.FC<FormViewProps> = ({ offer, token, onQrExpired }) => {
 
       <ProductPicker
         products={offer.products}
-        quantities={order.form.quantities}
+        quantities={Object.fromEntries(order.form.lineItems.map(item => [item.productId, item.quantity]))}
         onQuantityChange={order.setQuantity}
         errorText={order.errors.lineItems}
       />
