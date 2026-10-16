@@ -22,7 +22,7 @@ import {
   Alert,
   AlertTitle,
   FormControlLabel,
-nst PUBLIC_ORDER_CAP = 500;
+  const PUBLIC_ORDER_CAP = 500;
   Switch,
 } from '@mui/material';
 import { Delete as DeleteIcon, Warning as WarningIcon } from '@mui/icons-material';
@@ -522,18 +522,9 @@ export const CampaignSettingsPage: React.FC = () => {
                 campaignName={publicOrderSettings.campaignName}
               />
               <PublicSettingsCapNotice
-                publicOrderCount={publicOrderSettings.publicOrderCount}
-                maxOrders={500}
-              />
-              <Stack spacing={3}>
-                <PublicSettingsAckCheckboxes
-                  acknowledgementsAccepted={publicOrderAcknowledgementsAccepted}
-                  onChange={setPublicOrderAcknowledgementsAccepted}
-                  disabled={updating || !publicOrderSettings.enabled}
-                />
                 <PublicSettingsMethodChecklist
                   allowedPaymentMethods={draft.allowedPaymentMethods}
-                  onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
+                  onChange={(methods) => setPublicOrderField("allowedPaymentMethods", methods)}
                   disabled={updating || !publicOrderSettings.enabled}
                 />
                 <PublicSettingsActions
@@ -542,32 +533,13 @@ export const CampaignSettingsPage: React.FC = () => {
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
                   saving={updating}
-                  onSave={savePublicOrderSettings},
+                  onSave={savePublicOrderSettings}
+                />
               </Stack>
             </>
           )}
           {!publicOrderSettings && publicOrderLoading && <LoadingState minHeight="200px" />}
-      <Paper\n        sx={{\n          p: 3,\n          borderColor: \error.main\,\n          borderWidth: 1,\n          borderStyle: \solid\\n        }}>\n        <Typography variant="h6" gutterBottom color="error">\n          Danger Zone\n        </Typography>\n        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>\n          Delete Campaign\n        </Button>\n      </Paper>
-        confirmLabel="Delete Permanently"
-        confirmColor="error"
-      >
-        <Typography>
-          Are you sure you want to delete &quot;{campaign?.campaignName}&quot;? All orders and data will be permanently
-          deleted. This action cannot be undone.
-        </Typography>
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={unitChangeConfirmOpen}
-        title="Confirm Changes to Shared Campaign"
-        onClose={handleUnitChangeDialogClose}
-        onConfirm={handleSaveChanges}
-        confirmLabel="Save Anyway"
-        confirmColor="warning"
-      >
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <AlertTitle>This may affect unit reports</AlertTitle>
-          You are changing the campaign name or catalog of a campaign that was created from a campaign link.
+          </Paper>
         </Alert>
         <Typography>
           These changes may cause this campaign to no longer appear correctly in unit reports for your unit. Are you
