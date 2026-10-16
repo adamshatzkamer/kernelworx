@@ -328,9 +328,6 @@ export const CampaignSettingsPage: React.FC = () => {
   const {
     settings: publicOrderSettings,
     loading: publicOrderLoading,
-    saved: publicOrderSaved,
-    dirty: publicOrderDirty,
-    draft: publicOrderDraft,
     setField: setPublicOrderField,
     save: savePublicOrderSettings,
     rotateToken: rotatePublicOrderToken,
@@ -597,13 +594,11 @@ export const CampaignSettingsPage: React.FC = () => {
                 />
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
-                  onToggle={setPublicOrderField.bind(null, 'enabled')}
                   onRotate={rotatePublicOrderToken}
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
                   saving={updating}
-                  onSave={savePublicOrderSettings},
-                  disabled={!publicOrderSettings}
+                  onSave={savePublicOrderSettings}
                 />
               </Stack>
             </>

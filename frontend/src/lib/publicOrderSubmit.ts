@@ -38,7 +38,7 @@ export function buildPublicOrderInput(args: {
   campaignId: string;
   form: PublicOrderFormState;
 }): GqlPublicCreateOrderInput {
-  const { profileId, token, campaignId, form } = args; // profileId is unused
+  const { token, campaignId, form } = args; // profileId is unused
   const input: GqlPublicCreateOrderInput = {
     campaignId,
     token,
@@ -93,5 +93,13 @@ export function buildSubmittedSummary(
   form: PublicOrderFormState,
   offer: PublicOfferView,
 ): PublicOrderSubmittedSummary {
-
-}
+    const paymentMethod = offer.paymentMethods[0]?.name ?? form.paymentMethod;
+    return {
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      paymentMethod,
+      phone: form.phone.trim() || undefined,
+      email: form.email.trim() || undefined,
+      lineItems: [],
+    };
+  }
