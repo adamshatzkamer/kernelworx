@@ -22,7 +22,6 @@ import {
   Alert,
   AlertTitle,
   FormControlLabel,
-nst PUBLIC_ORDER_CAP = 500;
   Switch,
 } from '@mui/material';
 import { Delete as DeleteIcon, Warning as WarningIcon } from '@mui/icons-material';
@@ -46,6 +45,7 @@ import { PublicSettingsActions } from '../components/public/PublicSettingsAction
 import { ensureCampaignId, ensureCatalogId, ensureProfileId, toUrlId } from '../lib/ids';
 import { dateToISO } from '../lib/date-utils';
 import type { GqlCampaign, GqlCatalog } from '../types';
+const PUBLIC_ORDER_CAP = 500;
 
 /* eslint-disable complexity */
 
@@ -326,7 +326,64 @@ export const CampaignSettingsPage: React.FC = () => {
   const allCatalogs = getAllCatalogs(publicCatalogs, myCatalogs);
 
   // Fetch public order settings
-  const { settings: publicOrderSettings, loading: publicOrderLoading, setField: setPublicOrderField, save: savePublicOrderSettings, rotateToken: rotatePublicOrderToken, disable: disablePublicOrderSettings, enable: enablePublicOrderSettings, acknowledgementsAccepted: publicOrderAcknowledgementsAccepted, setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
+  const {
+    settings: publicOrderSettings,
+    loading: publicOrderLoading,
+    setField: setPublicOrderField,
+    save: savePublicOrderSettings,
+    rotateToken: rotatePublicOrderToken,
+    disable: disablePublicOrderSettings,
+    enable: enablePublicOrderSettings,
+    acknowledgementsAccepted: publicOrderAcknowledgementsAccepted,
+    setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted,
+  } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
+
+  // Initialize form when campaign loads
+  React.useEffect(() => {
+    const c = getCampaign(campaignData);
+    initializeFormFromCampaign(
+      c,
+      setCampaignName,
+      setStartDate,
+      setEndDate,
+      setCatalogId,
+      setIsActive,
+      setUnitType,
+      setUnitNumber,
+      setCity,
+      setState,
+      setUnitExpanded,
+    );
+  }, [campaignData]);
+
+  // Update campaign mutation
+  const [updateCampaign, { loading: updating }] = useMutation(UPDATE_CAMPAIGN, {
+    refetchQueries: dbProfileId ? [{ query: LIST_CAMPAIGNS_BY_PROFILE, variables: { profileId: dbProfileId } }] : [],
+    onCompleted: () => {
+      refetch().catch(() => {});
+    },
+  });
+
+  // Delete campaign mutation
+  const [deleteCampaign] = useMutation(DELETE_CAMPAIGN, {
+    onCompleted: () => {
+      void navigate(`/scouts/${toUrlId(profileId)}/campaigns`);
+    },
+  });
+
+  const campaign = getCampaign(campaignData);
+
+  // Check if unit-related fields have changed (campaignName, catalogId, or unit fields)
+  const hasUnitRelatedChanges = hasUnitFieldsChanged(
+    campaign,
+    campaignName,
+    catalogId,
+    unitType,
+    unitNumber,
+    city,
+    state,
+  );
+
   const handleSaveClick = () => {
     const action = getSaveAction(hasUnitRelatedChanges, hasSharedCampaignCode(campaign));
     const actions: Record<SaveAction, () => void> = {
@@ -523,7 +580,7 @@ export const CampaignSettingsPage: React.FC = () => {
               />
               <PublicSettingsCapNotice
                 publicOrderCount={publicOrderSettings.publicOrderCount}
-                maxOrders={500}
+                maxOrders={PUBLIC_ORDER_CAP}
               />
               <Stack spacing={3}>
                 <PublicSettingsAckCheckboxes
@@ -532,7 +589,7 @@ export const CampaignSettingsPage: React.FC = () => {
                   disabled={updating || !publicOrderSettings.enabled}
                 />
                 <PublicSettingsMethodChecklist
-                  allowedPaymentMethods={draft.allowedPaymentMethods}
+                  allowedPaymentMethods={publicOrderSettings.allowedPaymentMethods}
                   onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
                   disabled={updating || !publicOrderSettings.enabled}
                 />
@@ -542,12 +599,40 @@ export const CampaignSettingsPage: React.FC = () => {
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
                   saving={updating}
-                  onSave={savePublicOrderSettings},
+                  onSave={savePublicOrderSettings}
+                />
               </Stack>
             </>
           )}
           {!publicOrderSettings && publicOrderLoading && <LoadingState minHeight="200px" />}
-      <Paper\n        sx={{\n          p: 3,\n          borderColor: \error.main\,\n          borderWidth: 1,\n          borderStyle: \solid\\n        }}>\n        <Typography variant="h6" gutterBottom color="error">\n          Danger Zone\n        </Typography>\n        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>\n          Delete Campaign\n        </Button>\n      </Paper>
+        </>
+      </Paper>
+
+      {/* Danger Zone */}
+      <Paper
+        sx={{
+          p: 3,
+          borderColor: 'error.main',
+          borderWidth: 1,
+          borderStyle: 'solid',
+        }}
+      >
+        <Typography variant="h6" gutterBottom color="error">
+          Danger Zone
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Deleting this campaign will permanently remove all orders and data. This action cannot be undone.
+        </Typography>
+        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
+          Delete Campaign
+        </Button>
+      </Paper>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete Campaign?"
+        onClose={handleDeleteDialogClose}
+        onConfirm={handleDeleteCampaign}
         confirmLabel="Delete Permanently"
         confirmColor="error"
       >
