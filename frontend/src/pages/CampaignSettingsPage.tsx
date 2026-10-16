@@ -335,8 +335,13 @@ export const CampaignSettingsPage: React.FC = () => {
     rotateToken: rotatePublicOrderToken,
     disable: disablePublicOrderSettings,
     enable: enablePublicOrderSettings,
+    draft: publicOrderDraft,
+    availablePaymentMethods: publicOrderAvailablePaymentMethods,
+    setPaymentAckAccepted: setPublicOrderPaymentAck,
+    setDisclosureAckAccepted: setPublicOrderDisclosureAck,
+    paymentAckAccepted: publicOrderPaymentAck,
+    disclosureAckAccepted: publicOrderDisclosureAck,
     acknowledgementsAccepted: publicOrderAcknowledgementsAccepted,
-    setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted,
   } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
 
   // Initialize form when campaign loads
@@ -585,17 +590,24 @@ export const CampaignSettingsPage: React.FC = () => {
               />
               <Stack spacing={3}>
                 <PublicSettingsAckCheckboxes
-                  acknowledgementsAccepted={publicOrderAcknowledgementsAccepted}
-                  onChange={setPublicOrderAcknowledgementsAccepted}
-                  disabled={publicOrderUpdating || !publicOrderSettings.enabled}
+                  paymentAckAccepted={publicOrderPaymentAck}
+                  disclosureAckAccepted={publicOrderDisclosureAck}
+                  onPaymentAckChange={setPublicOrderPaymentAck}
+                  onDisclosureAckChange={setPublicOrderDisclosureAck}
+                  disabled={publicOrderUpdating}
                 />
                 <PublicSettingsMethodChecklist
-                  allowedPaymentMethods={publicOrderSettings.allowedPaymentMethods}
+                  availablePaymentMethods={publicOrderAvailablePaymentMethods}
+                  allowedPaymentMethods={publicOrderDraft.allowedPaymentMethods}
                   onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
-                  disabled={publicOrderUpdating || !publicOrderSettings.enabled}
+                  disabled={publicOrderUpdating}
                 />
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
+                  canEnable={
+                    publicOrderAcknowledgementsAccepted &&
+                    publicOrderDraft.allowedPaymentMethods.length > 0
+                  }
                   onRotate={() => {
                     void rotatePublicOrderToken();
                   }}

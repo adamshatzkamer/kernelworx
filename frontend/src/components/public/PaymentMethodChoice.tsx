@@ -20,24 +20,26 @@
 
 import { useRef, useState } from 'react';
 import { Alert, Box, Link, Stack, Typography } from '@mui/material';
-import { decodeQrLink } from '../../lib/qrDecode';
+import { decodeQrLink, sanitizeQrLink } from '../../lib/qrDecode';
 import type { PublicPaymentMethodView } from './publicOrderTypes';
 
 export const QR_NO_LINK_HINT = 'Scan this code from another device, or ask the seller how to pay.';
 
 interface QrImageBlockProps {
-  method: PublicPaymentMethodView;
+  methodName: string;
+  /** Non-null: the parent only renders this block when a QR URL exists. */
+  qrCodeUrl: string;
   onQrExpired?: () => void;
 }
 
 /** The image plus whatever the client-side decode found in it. */
-const QrImageBlock: React.FC<QrImageBlockProps> = ({ method, onQrExpired }) => {
+const QrImageBlock: React.FC<QrImageBlockProps> = ({ methodName, qrCodeUrl, onQrExpired }) => {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [decodedLink, setDecodedLink] = useState<string | null>(null);
 
   const handleImageLoad = () => {
-    const element = imageRef.current;
-    setDecodedLink(element ? decodeQrLink(element) : null);
+    // decodeQrLink/sanitizeQrLink both accept null, so no null-branch here.
+    setDecodedLink(sanitizeQrLink(decodeQrLink(imageRef.current)));
   };
 
   return (
@@ -45,8 +47,8 @@ const QrImageBlock: React.FC<QrImageBlockProps> = ({ method, onQrExpired }) => {
       <Box
         ref={imageRef}
         component="img"
-        src={method.qrCodeUrl ?? undefined}
-        alt={`Payment QR code for ${method.name}`}
+        src={qrCodeUrl}
+        alt={`Payment QR code for ${methodName}`}
         crossOrigin="anonymous"
         referrerPolicy="no-referrer"
         onLoad={handleImageLoad}
@@ -106,7 +108,9 @@ export const PaymentMethodChoice: React.FC<PaymentMethodChoiceProps> = ({
       <Typography variant="body1">{method.name}</Typography>
     </Box>
 
-    {selected && method.qrCodeUrl ? <QrImageBlock method={method} onQrExpired={onQrExpired} /> : null}
+    {selected && method.qrCodeUrl ? (
+      <QrImageBlock methodName={method.name} qrCodeUrl={method.qrCodeUrl} onQrExpired={onQrExpired} />
+    ) : null}
 
     {selected && !method.qrCodeUrl ? (
       <Alert severity="info" sx={{ ml: 3 }} data-testid="payment-no-qr">

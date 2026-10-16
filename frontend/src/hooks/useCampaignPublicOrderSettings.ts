@@ -74,10 +74,16 @@ export interface CampaignPublicOrderSettingsState {
   disable: () => Promise<void>;
   /** Enable public orders. */
   enable: () => Promise<void>;
-  /** Acknowledgement checkboxes state. */
+  /** Payment-responsibility acknowledgement (D4) accepted. */
+  paymentAckAccepted: boolean;
+  /** Set the payment-responsibility acknowledgement. */
+  setPaymentAckAccepted: (value: boolean) => void;
+  /** QR/PII-disclosure acknowledgement (D5) accepted. */
+  disclosureAckAccepted: boolean;
+  /** Set the QR/PII-disclosure acknowledgement. */
+  setDisclosureAckAccepted: (value: boolean) => void;
+  /** Both acknowledgements accepted — the mutation's `acknowledgementsAccepted` flag. */
   acknowledgementsAccepted: boolean;
-  /** Set the acknowledgement checkboxes state. */
-  setAcknowledgementsAccepted: (value: boolean) => void;
 }
 
 /** The shape of the settings object. */
@@ -190,8 +196,18 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [draft, setDraft] = useState<PublicOrderSettingsView>(emptyDraft);
-  const [acknowledgementsAccepted, setAcknowledgementsAccepted] = useState(false);
+  const [paymentAckAccepted, setPaymentAckAccepted] = useState(false);
+  const [disclosureAckAccepted, setDisclosureAckAccepted] = useState(false);
   const [availablePaymentMethods, setAvailablePaymentMethods] = useState<string[]>([]);
+
+  const acknowledgementsAccepted = paymentAckAccepted && disclosureAckAccepted;
+
+  /** Apply a stored acknowledgement timestamp to both checkbox states. */
+  const applyAcknowledged = (acknowledgedAt: string | null | undefined) => {
+    const accepted = hasAcknowledged(acknowledgedAt);
+    setPaymentAckAccepted(accepted);
+    setDisclosureAckAccepted(accepted);
+  };
 
   // Fetch campaign
   const { data: campaignData } = useQuery<{ getCampaign: GqlCampaign }>(GET_CAMPAIGN, {
@@ -213,21 +229,27 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   // Helper to get campaign from query data
 
-  // Initialize form from settings
+  // Initialize the stored view from the settings query. Depends only on the
+  // settings data: a late payment-methods resolution must not re-apply the
+  // original query row over post-mutation state.
   useEffect(() => {
     const fetched = settingsData?.getCampaignPublicOrderSettings;
     if (!fetched) {
       return;
     }
-    const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
-    setAvailablePaymentMethods(buildAvailablePaymentMethods(paymentMethods));
     const mapped = mapFetchedToView(fetched);
     setSettings(mapped);
     setDraft(mapped);
     setSaved(true);
     setDirty(false);
-    setAcknowledgementsAccepted(hasAcknowledged(fetched.acknowledgedAt));
-  }, [settingsData, paymentMethodsData]);
+    applyAcknowledged(fetched.acknowledgedAt);
+  }, [settingsData]);
+
+  // The available method list follows the payment-methods query.
+  useEffect(() => {
+    const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
+    setAvailablePaymentMethods(buildAvailablePaymentMethods(paymentMethods));
+  }, [paymentMethodsData]);
 
   // Reset draft when settings change
   useEffect(() => {
@@ -267,7 +289,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
         setDraft(mapped);
         setSaved(true);
         setDirty(false);
-        setAcknowledgementsAccepted(hasAcknowledged(updated.acknowledgedAt));
+        applyAcknowledged(updated.acknowledgedAt);
       }
     } catch (updateError) {
       // TODO: handle error
@@ -330,7 +352,10 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
     rotateToken,
     disable,
     enable,
+    paymentAckAccepted,
+    setPaymentAckAccepted,
+    disclosureAckAccepted,
+    setDisclosureAckAccepted,
     acknowledgementsAccepted,
-    setAcknowledgementsAccepted,
   };
 }

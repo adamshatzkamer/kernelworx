@@ -2,8 +2,9 @@
  * CampaignSettingsPage public-orders section tests.
  *
  * The campaign settings page hosts the public-order settings UI
- * (share link, capacity notice, acknowledgement checkbox, payment-method
- * checklist, and the save/enable/disable/rotate actions) driven by
+ * (share link, capacity notice, both mandated acknowledgement checkboxes,
+ * the payment-method checklist driven by the seller's real methods, and the
+ * save/enable/disable/rotate actions) driven by
  * useCampaignPublicOrderSettings against the campaign-keyed API.
  */
 
@@ -22,13 +23,25 @@ import {
   GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
   UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
 } from '../src/lib/graphql';
+import {
+  PAYMENT_ACK_TEXT,
+  DISCLOSURE_ACK_TEXT,
+} from '../src/components/public/PublicSettingsAckCheckboxes';
 import type { GqlCampaign as Campaign } from '../src/types';
+
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,mockqrcode'),
+  },
+}));
 
 const PROFILE_ID_RAW = 'profile-123';
 const CAMPAIGN_ID_RAW = 'campaign-456';
 const PROFILE_ID = `PROFILE#${PROFILE_ID_RAW}`;
 const CAMPAIGN_ID = `CAMPAIGN#${CAMPAIGN_ID_RAW}`;
 const CATALOG_ID = `CATALOG#catalog-1`;
+
+const shareUrlFor = (token: string) => `${window.location.origin}/o/${CAMPAIGN_ID_RAW}/${token}`;
 
 type CampaignFixture = Omit<Campaign, 'sharedCampaignCode' | 'catalogId' | 'startDate' | 'endDate'> & {
   __typename?: string;
@@ -102,7 +115,14 @@ const baseMocks = (settings = makeSettings()): MockedResponse[] => [
   },
   {
     request: { query: GET_MY_PAYMENT_METHODS },
-    result: { data: { myPaymentMethods: [] } },
+    result: {
+      data: {
+        myPaymentMethods: [
+          { __typename: 'PaymentMethod', name: 'Venmo', qrCodeUrl: null },
+          { __typename: 'PaymentMethod', name: 'Cash', qrCodeUrl: null },
+        ],
+      },
+    },
   },
 ];
 
@@ -128,7 +148,7 @@ const settingsVisible = async () => {
     expect(screen.getByText('Public Orders')).toBeInTheDocument();
   });
   await waitFor(() => {
-    expect(screen.getByText(`/o/${CAMPAIGN_ID}/tok-1`)).toBeInTheDocument();
+    expect(screen.getByTestId('share-url')).toHaveTextContent(shareUrlFor('tok-1'));
   });
 };
 
@@ -141,9 +161,16 @@ describe('CampaignSettingsPage public orders section', () => {
     renderPage(baseMocks());
     await settingsVisible();
 
+    // The bare campaign id is used — a raw CAMPAIGN# prefix would break the URL.
+    expect(screen.getByTestId('share-url').textContent).not.toContain('CAMPAIGN#');
     expect(screen.getByText(/3 out of 500 maximum orders/)).toBeInTheDocument();
-    expect(screen.getByText(/I acknowledge that enabling public orders/)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Visa' })).toBeEnabled();
+    // Both mandated acknowledgement texts render.
+    expect(screen.getByText(PAYMENT_ACK_TEXT)).toBeInTheDocument();
+    expect(screen.getByText(DISCLOSURE_ACK_TEXT)).toBeInTheDocument();
+    // The checklist lists the seller's real methods (Venmo from payment methods).
+    expect(screen.getByRole('checkbox', { name: 'Venmo' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Check' })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Visa' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Disable' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
@@ -155,19 +182,74 @@ describe('CampaignSettingsPage public orders section', () => {
     await waitFor(() => {
       expect(screen.getByText('Public Orders')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Share link not available/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Share link not available/)).toBeInTheDocument();
+    });
   });
 
-  it('disables the draft controls while public orders are disabled', async () => {
-    renderPage(baseMocks(makeSettings({ enabled: false, shareToken: null })));
+  it('keeps the draft controls editable while public orders are disabled', async () => {
+    renderPage(baseMocks(makeSettings({
+      enabled: false,
+      shareToken: null,
+      acknowledgedAt: null,
+      ackVersion: null,
+    })));
     await waitFor(() => {
       expect(screen.getByText('Public Orders')).toBeInTheDocument();
     });
+    // F1 regression: the seller must be able to pick methods and acks BEFORE
+    // enabling — the server rejects an enable with an empty method list.
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: 'Visa' })).toBeDisabled();
+      expect(screen.getByRole('checkbox', { name: 'Venmo' })).toBeEnabled();
     });
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Cash' })).toBeEnabled();
+    // Enable stays gated until both acks are checked and a method is chosen.
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
+    // Save is meaningless while the feature is off.
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('enables public orders end-to-end: acks + method first, then Enable', async () => {
+    const mocks = [
+      ...baseMocks(makeSettings({ enabled: false, shareToken: null, acknowledgedAt: null, ackVersion: null })),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: ['Cash', 'Venmo'],
+              acknowledgementsAccepted: true,
+            },
+          },
+        },
+        result: {
+          data: {
+            updateCampaignPublicOrderSettings: makeSettings({
+              allowedPaymentMethods: ['Cash', 'Venmo'],
+            }),
+          },
+        },
+      },
+    ];
+    renderPage(mocks);
+    await waitFor(() => {
+      expect(screen.getByText('Public Orders')).toBeInTheDocument();
+    });
+    const enableButton = screen.getByRole('button', { name: 'Enable' });
+    expect(enableButton).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: PAYMENT_ACK_TEXT }));
+    await userEvent.click(screen.getByRole('checkbox', { name: DISCLOSURE_ACK_TEXT }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Venmo' }));
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Enable' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-url')).toHaveTextContent(shareUrlFor('tok-1'));
+    });
   });
 
   it('saves a draft edit of the allowed payment methods', async () => {
@@ -180,7 +262,7 @@ describe('CampaignSettingsPage public orders section', () => {
             input: {
               campaignId: CAMPAIGN_ID,
               enabled: true,
-              allowedPaymentMethods: ['Cash', 'Visa'],
+              allowedPaymentMethods: ['Cash', 'Check'],
               acknowledgementsAccepted: true,
             },
           },
@@ -188,7 +270,7 @@ describe('CampaignSettingsPage public orders section', () => {
         result: {
           data: {
             updateCampaignPublicOrderSettings: makeSettings({
-              allowedPaymentMethods: ['Cash', 'Visa'],
+              allowedPaymentMethods: ['Cash', 'Check'],
             }),
           },
         },
@@ -197,11 +279,11 @@ describe('CampaignSettingsPage public orders section', () => {
     renderPage(mocks);
     await settingsVisible();
 
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Visa' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Check' }));
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: 'Visa' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Check' })).toBeChecked();
     });
   });
 
@@ -232,7 +314,7 @@ describe('CampaignSettingsPage public orders section', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Rotate Share Token' }));
 
     await waitFor(() => {
-      expect(screen.getByText(`/o/${CAMPAIGN_ID}/tok-2`)).toBeInTheDocument();
+      expect(screen.getByTestId('share-url')).toHaveTextContent(shareUrlFor('tok-2'));
     });
   });
 
@@ -264,38 +346,6 @@ describe('CampaignSettingsPage public orders section', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Share link not available/)).toBeInTheDocument();
-    });
-  });
-
-  it('sends enabled=true when the enable action is clicked on a disabled campaign', async () => {
-    const mocks = [
-      ...baseMocks(makeSettings({ enabled: false, shareToken: null, acknowledgedAt: null, ackVersion: null })),
-      {
-        request: {
-          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
-          variables: {
-            input: {
-              campaignId: CAMPAIGN_ID,
-              enabled: true,
-              allowedPaymentMethods: ['Cash'],
-              acknowledgementsAccepted: false,
-            },
-          },
-        },
-        result: {
-          data: { updateCampaignPublicOrderSettings: makeSettings() },
-        },
-      },
-    ];
-    renderPage(mocks);
-    await waitFor(() => {
-      expect(screen.getByText('Public Orders')).toBeInTheDocument();
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: 'Enable' }));
-
-    await waitFor(() => {
-      expect(screen.getByText(`/o/${CAMPAIGN_ID}/tok-1`)).toBeInTheDocument();
     });
   });
 });

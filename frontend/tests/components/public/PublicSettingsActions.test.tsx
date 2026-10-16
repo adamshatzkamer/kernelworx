@@ -46,6 +46,14 @@ describe('PublicSettingsActions', () => {
     expect(screen.getByRole('button', { name: 'Rotate Share Token' })).toBeDisabled();
   });
 
+  it('disables enable when the prerequisites are unmet', () => {
+    const props = renderActions({ enabled: false, canEnable: false });
+    const enable = screen.getByRole('button', { name: 'Enable' });
+    expect(enable).toBeDisabled();
+    fireEvent.click(enable);
+    expect(props.onEnable).not.toHaveBeenCalled();
+  });
+
   it('disables enable when already enabled and disable when not', () => {
     const { unmount } = render(
       <PublicSettingsActions

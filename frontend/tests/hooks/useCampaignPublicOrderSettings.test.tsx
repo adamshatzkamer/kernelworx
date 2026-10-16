@@ -113,6 +113,8 @@ describe('useCampaignPublicOrderSettings', () => {
     expect(result.current.saved).toBe(true);
     expect(result.current.dirty).toBe(false);
     expect(result.current.acknowledgementsAccepted).toBe(true);
+    expect(result.current.paymentAckAccepted).toBe(true);
+    expect(result.current.disclosureAckAccepted).toBe(true);
     expect(result.current.draft).toEqual(result.current.settings);
   });
 
@@ -156,6 +158,8 @@ describe('useCampaignPublicOrderSettings', () => {
     });
     expect(result.current.availablePaymentMethods).toEqual(['Cash', 'Check']);
     expect(result.current.acknowledgementsAccepted).toBe(false);
+    expect(result.current.paymentAckAccepted).toBe(false);
+    expect(result.current.disclosureAckAccepted).toBe(false);
   });
 
   it('marks the draft dirty when a field changes', async () => {
@@ -348,6 +352,94 @@ describe('useCampaignPublicOrderSettings', () => {
     await waitFor(() => {
       expect(result.current.settings?.enabled).toBe(true);
     });
+  });
+
+  it('derives acknowledgementsAccepted from both checkbox states', async () => {
+    const mocks = [
+      campaignMock,
+      settingsMock(
+        makeSettings({ enabled: false, shareToken: null, acknowledgedAt: null, ackVersion: null }),
+      ),
+      paymentMethodsMock(),
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+    expect(result.current.acknowledgementsAccepted).toBe(false);
+
+    act(() => {
+      result.current.setPaymentAckAccepted(true);
+    });
+    expect(result.current.paymentAckAccepted).toBe(true);
+    expect(result.current.acknowledgementsAccepted).toBe(false);
+
+    act(() => {
+      result.current.setDisclosureAckAccepted(true);
+    });
+    expect(result.current.acknowledgementsAccepted).toBe(true);
+
+    act(() => {
+      result.current.setPaymentAckAccepted(false);
+    });
+    expect(result.current.acknowledgementsAccepted).toBe(false);
+  });
+
+  it('enable sends acknowledgementsAccepted=true when both acks are checked', async () => {
+    const enabledFresh = makeSettings({
+      enabled: true,
+      shareToken: 'tok-new',
+      acknowledgedAt: '2025-06-01T00:00:00.000Z',
+    });
+    const mocks = [
+      campaignMock,
+      settingsMock(
+        makeSettings({ enabled: false, shareToken: null, acknowledgedAt: null, ackVersion: null }),
+      ),
+      paymentMethodsMock(),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: ['Cash'],
+              acknowledgementsAccepted: true,
+            },
+          },
+        },
+        result: { data: { updateCampaignPublicOrderSettings: enabledFresh } },
+      },
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.setPaymentAckAccepted(true);
+      result.current.setDisclosureAckAccepted(true);
+    });
+
+    await act(async () => {
+      await result.current.enable();
+    });
+
+    await waitFor(() => {
+      expect(result.current.settings?.enabled).toBe(true);
+    });
+    // The response carried an acknowledgement, so both checkbox states follow it.
+    expect(result.current.acknowledgementsAccepted).toBe(true);
+    expect(result.current.settings?.token).toBe('tok-new');
   });
 
   it('swallows mutation errors and settles the updating flag', async () => {
