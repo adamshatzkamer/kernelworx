@@ -74,10 +74,16 @@ export interface CampaignPublicOrderSettingsState {
   disable: () => Promise<void>;
   /** Enable public orders. */
   enable: () => Promise<void>;
-  /** Acknowledgement checkboxes state. */
+  /** Payment-responsibility acknowledgement (D4) accepted. */
+  paymentAckAccepted: boolean;
+  /** Set the payment-responsibility acknowledgement. */
+  setPaymentAckAccepted: (value: boolean) => void;
+  /** QR/PII-disclosure acknowledgement (D5) accepted. */
+  disclosureAckAccepted: boolean;
+  /** Set the QR/PII-disclosure acknowledgement. */
+  setDisclosureAckAccepted: (value: boolean) => void;
+  /** Both acknowledgements accepted — the mutation's `acknowledgementsAccepted` flag. */
   acknowledgementsAccepted: boolean;
-  /** Set the acknowledgement checkboxes state. */
-  setAcknowledgementsAccepted: (value: boolean) => void;
 }
 
 /** The shape of the settings object. */
@@ -122,24 +128,91 @@ const emptyDraft: PublicOrderSettingsView = {
 };
 
 interface UseCampaignPublicOrderSettingsArgs {
-  campaignId: string;
+  campaignId: string | null;
+}
+
+type RawSettings = NonNullable<GqlGetCampaignPublicOrderSettingsQuery['getCampaignPublicOrderSettings']>;
+type RawUpdated = NonNullable<GqlUpdateCampaignPublicOrderSettingsMutation['updateCampaignPublicOrderSettings']>;
+
+/** Whether the server-stored acknowledgement timestamp counts as accepted. */
+function hasAcknowledged(acknowledgedAt: string | null | undefined): boolean {
+  return !!acknowledgedAt && acknowledgedAt !== '';
+}
+
+/** Map the fields shared by the settings query and the mutation response. */
+function mapIdentityFields(raw: {
+  enabled: boolean;
+  publicOrderCount?: number | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  campaignState?: string | null;
+}): Pick<PublicOrderSettingsView, 'enabled' | 'publicOrderCount' | 'campaignId' | 'campaignName' | 'campaignState'> {
+  return {
+    enabled: raw.enabled,
+    publicOrderCount: raw.publicOrderCount ?? 0,
+    campaignId: raw.campaignId ?? '',
+    campaignName: raw.campaignName ?? '',
+    campaignState: raw.campaignState ?? '',
+  };
+}
+
+/** Map a settings-query row into the view shape. */
+function mapFetchedToView(fetched: RawSettings): PublicOrderSettingsView {
+  return {
+    ...mapIdentityFields(fetched),
+    token: fetched.shareToken ?? null,
+    allowedPaymentMethods: fetched.allowedPaymentMethods ?? [],
+    acknowledgedAt: fetched.acknowledgedAt ?? null,
+    ackVersion: fetched.ackVersion ?? null,
+  };
+}
+
+/** Derive the ack version the mutation response implies. */
+function ackVersionFromAcknowledgement(acknowledgedAt: string | null | undefined): number | null {
+  return acknowledgedAt !== undefined && acknowledgedAt !== null ? PUBLIC_ORDER_ACK_VERSION : null;
+}
+
+/** Map a mutation response blob into the view shape. */
+function mapUpdatedToView(updated: RawUpdated): PublicOrderSettingsView {
+  return {
+    ...mapIdentityFields(updated),
+    token: updated.shareToken ?? null,
+    allowedPaymentMethods: updated.allowedPaymentMethods ?? [],
+    acknowledgedAt: updated.acknowledgedAt ?? null,
+    ackVersion: ackVersionFromAcknowledgement(updated.acknowledgedAt),
+  };
+}
+
+/** Payment method names offered to the seller, with Cash and Check always present. */
+function buildAvailablePaymentMethods(paymentMethods: { name: string }[]): string[] {
+  return Array.from(new Set([...paymentMethods.map((method) => method.name), 'Cash', 'Check']));
 }
 
 export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublicOrderSettingsArgs) {
-  const dbCampaignId = ensureCampaignId(campaignId)!;
+  const dbCampaignId = campaignId ? ensureCampaignId(campaignId) : null;
   const apolloClient = useApolloClient();
   const [updating, setUpdating] = useState(false);
   const [settings, setSettings] = useState<PublicOrderSettingsView | null>(null);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [draft, setDraft] = useState<PublicOrderSettingsView>(emptyDraft);
-  const [acknowledgementsAccepted, setAcknowledgementsAccepted] = useState(false);
+  const [paymentAckAccepted, setPaymentAckAccepted] = useState(false);
+  const [disclosureAckAccepted, setDisclosureAckAccepted] = useState(false);
   const [availablePaymentMethods, setAvailablePaymentMethods] = useState<string[]>([]);
+
+  const acknowledgementsAccepted = paymentAckAccepted && disclosureAckAccepted;
+
+  /** Apply a stored acknowledgement timestamp to both checkbox states. */
+  const applyAcknowledged = (acknowledgedAt: string | null | undefined) => {
+    const accepted = hasAcknowledged(acknowledgedAt);
+    setPaymentAckAccepted(accepted);
+    setDisclosureAckAccepted(accepted);
+  };
 
   // Fetch campaign
   const { data: campaignData } = useQuery<{ getCampaign: GqlCampaign }>(GET_CAMPAIGN, {
     variables: { campaignId: dbCampaignId },
-    skip: shouldSkipCampaignQuery(dbCampaignId ?? ''),
+    skip: !dbCampaignId,
   });
 
   // Fetch settings
@@ -151,42 +224,32 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   // Fetch payment methods
   const { data: paymentMethodsData } = useQuery<GqlGetMyPaymentMethodsQuery>(GET_MY_PAYMENT_METHODS, {
-    skip: !campaignId,
+    skip: !dbCampaignId,
   });
-
-  // Helper to check if campaign query should be skipped
-  function shouldSkipCampaignQuery(campaignId: string): boolean {
-    return !campaignId || campaignId === '';
-  }
 
   // Helper to get campaign from query data
 
-  // Initialize form from settings
+  // Initialize the stored view from the settings query. Depends only on the
+  // settings data: a late payment-methods resolution must not re-apply the
+  // original query row over post-mutation state.
   useEffect(() => {
-    if (settingsData?.getCampaignPublicOrderSettings) {
-      const fetched = settingsData.getCampaignPublicOrderSettings;
-
-      // Extract payment methods from the query data
-      const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
-      setAvailablePaymentMethods(Array.from(new Set([...paymentMethods.map(method => method.name), 'Cash', 'Check'])));
-      const mapped: PublicOrderSettingsView = {
-        enabled: fetched.enabled,
-        token: fetched.shareToken ?? null,
-        allowedPaymentMethods: fetched.allowedPaymentMethods ?? [],
-        acknowledgedAt: fetched.acknowledgedAt ?? null,
-        ackVersion: fetched.ackVersion ?? null,
-        publicOrderCount: fetched.publicOrderCount ?? 0,
-        campaignId: fetched.campaignId ?? '',
-        campaignName: fetched.campaignName ?? '',
-        campaignState: fetched.campaignState ?? '',
-      };
-      setSettings(mapped);
-      setDraft(mapped);
-      setSaved(true);
-      setDirty(false);
-      setAcknowledgementsAccepted(!!fetched.acknowledgedAt);
+    const fetched = settingsData?.getCampaignPublicOrderSettings;
+    if (!fetched) {
+      return;
     }
-  }, [settingsData, paymentMethodsData]);
+    const mapped = mapFetchedToView(fetched);
+    setSettings(mapped);
+    setDraft(mapped);
+    setSaved(true);
+    setDirty(false);
+    applyAcknowledged(fetched.acknowledgedAt);
+  }, [settingsData]);
+
+  // The available method list follows the payment-methods query.
+  useEffect(() => {
+    const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
+    setAvailablePaymentMethods(buildAvailablePaymentMethods(paymentMethods));
+  }, [paymentMethodsData]);
 
   // Reset draft when settings change
   useEffect(() => {
@@ -203,45 +266,30 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   const setField = useCallback(
     (field: PublicOrderSettingsField, value: string | boolean | string[] | null) => {
-      setDraft((previous) => {
-        const updated = { ...previous, [field]: value };
-        setDirty(true);
-        return updated;
-      });
+      setDirty(true);
+      setDraft((previous) => ({ ...previous, [field]: value }));
     },
-    [setDirty],
+    [setDraft, setDirty],
   );
 
-  const mutateSettings = async (buildInput: () => GqlUpdateCampaignPublicOrderSettingsInput) => {
+  const mutateSettings = async (
+    campaignKey: string,
+    buildInput: (id: string) => GqlUpdateCampaignPublicOrderSettingsInput,
+  ) => {
     setUpdating(true);
     try {
       const result = await apolloClient.mutate<GqlUpdateCampaignPublicOrderSettingsMutation>({
         mutation: pickUpdateCampaignPublicOrderSettingsDoc(),
-        variables: { input: buildInput() },
+        variables: { input: buildInput(campaignKey) },
       });
       const updated = result.data?.updateCampaignPublicOrderSettings;
       if (updated) {
-        const mapped: PublicOrderSettingsView = {
-          enabled: updated.enabled,
-          token: updated.shareToken ?? null,
-          allowedPaymentMethods: updated.allowedPaymentMethods ?? [],
-          acknowledgedAt: updated.acknowledgedAt ?? null,
-          ackVersion: updated.acknowledgedAt !== undefined && updated.acknowledgedAt !== null ? PUBLIC_ORDER_ACK_VERSION : null,
-          publicOrderCount: updated.publicOrderCount ?? 0,
-          campaignId: updated.campaignId,
-          campaignName: updated.campaignName,
-          campaignState: updated.campaignState,
-        };
+        const mapped = mapUpdatedToView(updated);
         setSettings(mapped);
         setDraft(mapped);
         setSaved(true);
         setDirty(false);
-        setAcknowledgementsAccepted(
-          !!updated.acknowledgedAt &&
-            updated.acknowledgedAt !== null &&
-            updated.acknowledgedAt !== undefined &&
-            updated.acknowledgedAt !== ''
-        );
+        applyAcknowledged(updated.acknowledgedAt);
       }
     } catch (updateError) {
       // TODO: handle error
@@ -252,8 +300,9 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const save = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: draft.enabled,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
@@ -261,8 +310,9 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const rotateToken = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: draft.enabled,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
@@ -271,16 +321,18 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const disable = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: false,
       allowedPaymentMethods: draft.allowedPaymentMethods,
     } as GqlUpdateCampaignPublicOrderSettingsInput));
   };
 
   const enable = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: true,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
@@ -300,7 +352,10 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
     rotateToken,
     disable,
     enable,
+    paymentAckAccepted,
+    setPaymentAckAccepted,
+    disclosureAckAccepted,
+    setDisclosureAckAccepted,
     acknowledgementsAccepted,
-    setAcknowledgementsAccepted,
   };
 }
