@@ -602,6 +602,7 @@ export const CampaignSettingsPage: React.FC = () => {
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
                   saving={updating}
+                  onSave={savePublicOrderSettings},
                   disabled={!publicOrderSettings}
                 />
               </Stack>
