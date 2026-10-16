@@ -157,21 +157,6 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   }
 
   // Helper to get campaign from query data
-  // Helper to get payment methods from query data
-  const getPaymentMethods = (data: { listManagedCatalogs?: GqlCatalog[] } | undefined): string[] => {
-    // We need to get the payment methods from the account, not from catalogs.
-    // This is a mistake: we should use GET_MY_PAYMENT_METHODS.
-    // We'll fix it below.
-    return [];
-  };
-
-  // Actually, we have a separate query for payment methods.
-  // We'll use the paymentMethodsData from GET_MY_PAYMENT_METHODS.
-  // But we need to get the payment methods from the account.
-  // The GET_MY_PAYMENT_METHODS query returns a list of payment methods.
-  // We'll assume it returns an array of strings? Let's check the schema.
-  // We'll leave it as a placeholder and fix it later.
-  // For now, we'll use an empty array and then update the hook to use the correct query.
 
   // Initialize form from settings
   useEffect(() => {
