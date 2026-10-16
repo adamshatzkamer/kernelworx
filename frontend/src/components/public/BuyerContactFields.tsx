@@ -62,8 +62,8 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
         label="Phone"
         value={phone}
         onChange={(event) => onFieldChange('phone', event.target.value)}
-        error={Boolean(errors.contact)}
-        helperText={errors.contact || 'A 10-digit US phone number. Phone or a complete address is required.'}
+        error={Boolean(errors.phone)}
+        helperText={errors.phone || 'A 10-digit US phone number. Phone or a complete address is required.'}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 6 }}>

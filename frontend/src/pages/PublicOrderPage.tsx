@@ -179,7 +179,7 @@ const FormView: React.FC<FormViewProps> = ({ offer, token, onQrExpired }) => {
       />
 
       <NoEmailConfirmDialog
-        open={order.noEmailPrompt>
+        open={order.noEmailPrompt}
         onGoBack={() => order.setNoEmailPrompt(false)}
         onContinue={() => void order.submitNow()}
       />

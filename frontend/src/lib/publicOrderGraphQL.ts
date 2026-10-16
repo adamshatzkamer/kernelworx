@@ -47,7 +47,7 @@ export const PUBLIC_CREATE_ORDER = gql`
 
 /** The buyer receipt view on /r/:campaignId/:orderSuffix/:receiptToken. */
 export const PUBLIC_GET_ORDER_RECEIPT = gql`
-  query PublicGetOrderReceipt($campaignId: ID!, $orderSuffix: ID!, $receiptToken: String!) {
+  query PublicGetOrderReceipt($campaignId: ID!, $orderSuffix: String!, $receiptToken: String!) {
     publicGetOrderReceipt(campaignId: $campaignId, orderSuffix: $orderSuffix, receiptToken: $receiptToken) {
       sellerName
       orderId
@@ -66,4 +66,4 @@ export const PUBLIC_GET_ORDER_RECEIPT = gql`
       buyerLastName
     }
   }
-`;
+`

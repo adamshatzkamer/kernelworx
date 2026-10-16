@@ -64,7 +64,7 @@ const ReceiptBody: React.FC<{ receipt: ReceiptView }> = ({ receipt }) => (
             <TableCell>Item</TableCell>
             <TableCell align="right">Qty</TableCell>
             <TableCell align="right">Each</TableCell>
-            <TableCell align="right">Subtotal
+            <TableCell align="right">Subtotal</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
