@@ -143,6 +143,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   // Fetch settings
   const { data: settingsData, loading } = useQuery<GqlGetCampaignPublicOrderSettingsQuery>(GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS, {
     variables: { campaignId: dbCampaignId },
+    fetchPolicy: 'network-only',
     skip: !dbCampaignId,
   });
 
@@ -213,7 +214,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
     setUpdating(true);
     try {
       const result = await apolloClient.mutate<GqlUpdateCampaignPublicOrderSettingsMutation>({
-        mutation: pickUpdateCampaignPublicOrderSettingsDoc(dbCampaignId),
+        mutation: pickUpdateCampaignPublicOrderSettingsDoc(),
         variables: { input: buildInput() },
       });
       const updated = result.data?.updateCampaignPublicOrderSettings;

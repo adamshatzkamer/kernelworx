@@ -22,6 +22,7 @@ import {
   Alert,
   AlertTitle,
   FormControlLabel,
+nst PUBLIC_ORDER_CAP = 500;
   Switch,
 } from '@mui/material';
 import { Delete as DeleteIcon, Warning as WarningIcon } from '@mui/icons-material';
@@ -531,7 +532,7 @@ export const CampaignSettingsPage: React.FC = () => {
                   disabled={updating || !publicOrderSettings.enabled}
                 />
                 <PublicSettingsMethodChecklist
-                  allowedPaymentMethods={publicOrderSettings.allowedPaymentMethods}
+                  allowedPaymentMethods={draft.allowedPaymentMethods}
                   onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
                   disabled={updating || !publicOrderSettings.enabled}
                 />
