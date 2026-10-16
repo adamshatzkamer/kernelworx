@@ -180,7 +180,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
       // Extract payment methods from the query data
       const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
-      setAvailablePaymentMethods(Array.from(new Set([...paymentMethods.map(method => method.name), 'Cash', 'Check'])});
+      setAvailablePaymentMethods(Array.from(new Set([...paymentMethods.map(method => method.name), 'Cash', 'Check'])));
       const mapped: PublicOrderSettingsView = {
         enabled: fetched.enabled,
         token: fetched.shareToken ?? null,
