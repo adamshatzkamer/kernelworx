@@ -3,12 +3,15 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import QRCode from 'qrcode';
 import { PublicSettingsShareSection } from '../../../src/components/public/PublicSettingsShareSection';
+
+const { mockToDataURL } = vi.hoisted(() => ({
+  mockToDataURL: vi.fn<(text: string, options?: unknown) => Promise<string>>(),
+}));
 
 vi.mock('qrcode', () => ({
   default: {
-    toDataURL: vi.fn(),
+    toDataURL: mockToDataURL,
   },
 }));
 
@@ -24,7 +27,7 @@ const renderSection = (shareToken: string | null = TOKEN) =>
 
 describe('PublicSettingsShareSection', () => {
   beforeEach(() => {
-    vi.mocked(QRCode.toDataURL).mockResolvedValue(QR_DATA_URL);
+    mockToDataURL.mockResolvedValue(QR_DATA_URL);
   });
 
   afterEach(() => {
@@ -40,7 +43,7 @@ describe('PublicSettingsShareSection', () => {
     await waitFor(() => {
       expect(screen.getByTestId('share-qr')).toBeInTheDocument();
     });
-    expect(vi.mocked(QRCode.toDataURL)).toHaveBeenCalledWith(expectedUrl, { width: 400, margin: 2 });
+    expect(mockToDataURL).toHaveBeenCalledWith(expectedUrl, { width: 400, margin: 2 });
     expect(screen.getByRole('img', { name: 'Share QR code for Spring Sale' })).toHaveAttribute(
       'src',
       QR_DATA_URL,
@@ -51,15 +54,15 @@ describe('PublicSettingsShareSection', () => {
     renderSection(null);
     expect(screen.getByText(/Share link not available/)).toBeInTheDocument();
     expect(screen.queryByTestId('share-url')).not.toBeInTheDocument();
-    expect(QRCode.toDataURL).not.toHaveBeenCalled();
+    expect(mockToDataURL).not.toHaveBeenCalled();
   });
 
   it('omits the QR image when generation fails but keeps the link', async () => {
-    vi.mocked(QRCode.toDataURL).mockRejectedValue(new Error('QR failed'));
+    mockToDataURL.mockRejectedValue(new Error('QR failed'));
     renderSection();
     expect(screen.getByTestId('share-url')).toHaveTextContent(expectedUrl);
     await waitFor(() => {
-      expect(vi.mocked(QRCode.toDataURL)).toHaveBeenCalled();
+      expect(mockToDataURL).toHaveBeenCalled();
     });
     expect(screen.queryByTestId('share-qr')).not.toBeInTheDocument();
   });
@@ -129,7 +132,7 @@ describe('PublicSettingsShareSection', () => {
     await waitFor(() => {
       expect(screen.getByTestId('share-qr')).toBeInTheDocument();
     });
-    vi.mocked(QRCode.toDataURL).mockResolvedValue('data:image/png;base64,rotated');
+    mockToDataURL.mockResolvedValue('data:image/png;base64,rotated');
     rerender(
       <PublicSettingsShareSection
         campaignId={CAMPAIGN_ID}
@@ -155,11 +158,11 @@ describe('PublicSettingsShareSection', () => {
     const pending = new Promise<string>((resolve) => {
       resolveToDataURL = resolve;
     });
-    vi.mocked(QRCode.toDataURL).mockReturnValue(pending);
+    mockToDataURL.mockReturnValue(pending);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { unmount } = renderSection();
     await waitFor(() => {
-      expect(vi.mocked(QRCode.toDataURL)).toHaveBeenCalled();
+      expect(mockToDataURL).toHaveBeenCalled();
     });
     unmount();
     resolveToDataURL('data:image/png;base64,late');
@@ -173,11 +176,11 @@ describe('PublicSettingsShareSection', () => {
     const pending = new Promise<string>((_resolve, reject) => {
       rejectToDataURL = reject;
     });
-    vi.mocked(QRCode.toDataURL).mockReturnValue(pending);
+    mockToDataURL.mockReturnValue(pending);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { unmount } = renderSection();
     await waitFor(() => {
-      expect(vi.mocked(QRCode.toDataURL)).toHaveBeenCalled();
+      expect(mockToDataURL).toHaveBeenCalled();
     });
     unmount();
     rejectToDataURL(new Error('late failure'));
