@@ -329,6 +329,7 @@ export const CampaignSettingsPage: React.FC = () => {
   const {
     settings: publicOrderSettings,
     loading: publicOrderLoading,
+    updating: publicOrderUpdating,
     setField: setPublicOrderField,
     save: savePublicOrderSettings,
     rotateToken: rotatePublicOrderToken,
@@ -586,19 +587,19 @@ export const CampaignSettingsPage: React.FC = () => {
                 <PublicSettingsAckCheckboxes
                   acknowledgementsAccepted={publicOrderAcknowledgementsAccepted}
                   onChange={setPublicOrderAcknowledgementsAccepted}
-                  disabled={updating || !publicOrderSettings.enabled}
+                  disabled={publicOrderUpdating || !publicOrderSettings.enabled}
                 />
                 <PublicSettingsMethodChecklist
                   allowedPaymentMethods={publicOrderSettings.allowedPaymentMethods}
                   onChange={(methods) => setPublicOrderField('allowedPaymentMethods', methods)}
-                  disabled={updating || !publicOrderSettings.enabled}
+                  disabled={publicOrderUpdating || !publicOrderSettings.enabled}
                 />
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
                   onRotate={rotatePublicOrderToken}
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
-                  saving={updating}
+                  saving={publicOrderUpdating}
                   onSave={savePublicOrderSettings}
                 />
               </Stack>
