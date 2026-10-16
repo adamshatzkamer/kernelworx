@@ -45,6 +45,7 @@ import { PublicSettingsActions } from '../components/public/PublicSettingsAction
 import { ensureCampaignId, ensureCatalogId, ensureProfileId, toUrlId } from '../lib/ids';
 import { dateToISO } from '../lib/date-utils';
 import type { GqlCampaign, GqlCatalog } from '../types';
+const PUBLIC_ORDER_CAP = 500;
 
 /* eslint-disable complexity */
 
@@ -579,7 +580,7 @@ export const CampaignSettingsPage: React.FC = () => {
               />
               <PublicSettingsCapNotice
                 publicOrderCount={publicOrderSettings.publicOrderCount}
-                maxOrders={500}
+                maxOrders={PUBLIC_ORDER_CAP}
               />
               <Stack spacing={3}>
                 <PublicSettingsAckCheckboxes
