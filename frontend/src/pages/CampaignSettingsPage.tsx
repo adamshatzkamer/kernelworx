@@ -596,11 +596,19 @@ export const CampaignSettingsPage: React.FC = () => {
                 />
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
-                  onRotate={rotatePublicOrderToken}
-                  onDisable={disablePublicOrderSettings}
-                  onEnable={enablePublicOrderSettings}
+                  onRotate={() => {
+                    void rotatePublicOrderToken();
+                  }}
+                  onDisable={() => {
+                    void disablePublicOrderSettings();
+                  }}
+                  onEnable={() => {
+                    void enablePublicOrderSettings();
+                  }}
                   saving={publicOrderUpdating}
-                  onSave={savePublicOrderSettings}
+                  onSave={() => {
+                    void savePublicOrderSettings();
+                  }}
                 />
               </Stack>
             </>

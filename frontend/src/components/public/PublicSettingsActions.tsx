@@ -12,6 +12,16 @@ interface PublicSettingsActionsProps {
   saving: boolean;
 }
 
+type SettingsAction = 'save' | 'enable' | 'disable';
+
+/** The save/enable/disable actions share one disable rule: pending, or already in the target state. */
+const actionDisabled = (action: SettingsAction, saving: boolean, enabled: boolean): boolean =>
+  saving || (action === 'enable' ? enabled : !enabled);
+
+const rotateDisabled = (saving: boolean, enabled: boolean): boolean => !enabled || saving;
+
+const actionLabel = (saving: boolean, label: string): string => (saving ? 'Saving...' : label);
+
 export const PublicSettingsActions: React.FC<PublicSettingsActionsProps> = ({
   enabled,
   onRotate,
@@ -26,32 +36,16 @@ export const PublicSettingsActions: React.FC<PublicSettingsActionsProps> = ({
         Actions
       </Typography>
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <Button
-          variant="contained"
-          onClick={onSave}
-          disabled={saving || !enabled}
-        >
-          {saving ? 'Saving...' : 'Save'}
+        <Button variant="contained" onClick={onSave} disabled={actionDisabled('save', saving, enabled)}>
+          {actionLabel(saving, 'Save')}
         </Button>
-        <Button
-          variant="contained"
-          onClick={onEnable}
-          disabled={saving || enabled}
-        >
-          {saving ? 'Saving...' : 'Enable'}
+        <Button variant="contained" onClick={onEnable} disabled={actionDisabled('enable', saving, enabled)}>
+          {actionLabel(saving, 'Enable')}
         </Button>
-        <Button
-          variant="contained"
-          onClick={onDisable}
-          disabled={saving || !enabled}
-        >
-          {saving ? 'Saving...' : 'Disable'}
+        <Button variant="contained" onClick={onDisable} disabled={actionDisabled('disable', saving, enabled)}>
+          {actionLabel(saving, 'Disable')}
         </Button>
-        <Button
-          variant="outlined"
-          onClick={onRotate}
-          disabled={!enabled || saving}
-        >
+        <Button variant="outlined" onClick={onRotate} disabled={rotateDisabled(saving, enabled)}>
           Rotate Share Token
         </Button>
       </Stack>

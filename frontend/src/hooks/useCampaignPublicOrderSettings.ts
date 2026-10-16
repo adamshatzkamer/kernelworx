@@ -125,6 +125,63 @@ interface UseCampaignPublicOrderSettingsArgs {
   campaignId: string;
 }
 
+type RawSettings = NonNullable<GqlGetCampaignPublicOrderSettingsQuery['getCampaignPublicOrderSettings']>;
+type RawUpdated = NonNullable<GqlUpdateCampaignPublicOrderSettingsMutation['updateCampaignPublicOrderSettings']>;
+
+/** Whether the server-stored acknowledgement timestamp counts as accepted. */
+function hasAcknowledged(acknowledgedAt: string | null | undefined): boolean {
+  return !!acknowledgedAt && acknowledgedAt !== '';
+}
+
+/** Map the fields shared by the settings query and the mutation response. */
+function mapIdentityFields(raw: {
+  enabled: boolean;
+  publicOrderCount?: number | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  campaignState?: string | null;
+}): Pick<PublicOrderSettingsView, 'enabled' | 'publicOrderCount' | 'campaignId' | 'campaignName' | 'campaignState'> {
+  return {
+    enabled: raw.enabled,
+    publicOrderCount: raw.publicOrderCount ?? 0,
+    campaignId: raw.campaignId ?? '',
+    campaignName: raw.campaignName ?? '',
+    campaignState: raw.campaignState ?? '',
+  };
+}
+
+/** Map a settings-query row into the view shape. */
+function mapFetchedToView(fetched: RawSettings): PublicOrderSettingsView {
+  return {
+    ...mapIdentityFields(fetched),
+    token: fetched.shareToken ?? null,
+    allowedPaymentMethods: fetched.allowedPaymentMethods ?? [],
+    acknowledgedAt: fetched.acknowledgedAt ?? null,
+    ackVersion: fetched.ackVersion ?? null,
+  };
+}
+
+/** Derive the ack version the mutation response implies. */
+function ackVersionFromAcknowledgement(acknowledgedAt: string | null | undefined): number | null {
+  return acknowledgedAt !== undefined && acknowledgedAt !== null ? PUBLIC_ORDER_ACK_VERSION : null;
+}
+
+/** Map a mutation response blob into the view shape. */
+function mapUpdatedToView(updated: RawUpdated): PublicOrderSettingsView {
+  return {
+    ...mapIdentityFields(updated),
+    token: updated.shareToken ?? null,
+    allowedPaymentMethods: updated.allowedPaymentMethods ?? [],
+    acknowledgedAt: updated.acknowledgedAt ?? null,
+    ackVersion: ackVersionFromAcknowledgement(updated.acknowledgedAt),
+  };
+}
+
+/** Payment method names offered to the seller, with Cash and Check always present. */
+function buildAvailablePaymentMethods(paymentMethods: { name: string }[]): string[] {
+  return Array.from(new Set([...paymentMethods.map((method) => method.name), 'Cash', 'Check']));
+}
+
 export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublicOrderSettingsArgs) {
   const dbCampaignId = ensureCampaignId(campaignId)!;
   const apolloClient = useApolloClient();
@@ -163,29 +220,18 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   // Initialize form from settings
   useEffect(() => {
-    if (settingsData?.getCampaignPublicOrderSettings) {
-      const fetched = settingsData.getCampaignPublicOrderSettings;
-
-      // Extract payment methods from the query data
-      const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
-      setAvailablePaymentMethods(Array.from(new Set([...paymentMethods.map(method => method.name), 'Cash', 'Check'])));
-      const mapped: PublicOrderSettingsView = {
-        enabled: fetched.enabled,
-        token: fetched.shareToken ?? null,
-        allowedPaymentMethods: fetched.allowedPaymentMethods ?? [],
-        acknowledgedAt: fetched.acknowledgedAt ?? null,
-        ackVersion: fetched.ackVersion ?? null,
-        publicOrderCount: fetched.publicOrderCount ?? 0,
-        campaignId: fetched.campaignId ?? '',
-        campaignName: fetched.campaignName ?? '',
-        campaignState: fetched.campaignState ?? '',
-      };
-      setSettings(mapped);
-      setDraft(mapped);
-      setSaved(true);
-      setDirty(false);
-      setAcknowledgementsAccepted(!!fetched.acknowledgedAt);
+    const fetched = settingsData?.getCampaignPublicOrderSettings;
+    if (!fetched) {
+      return;
     }
+    const paymentMethods = paymentMethodsData?.myPaymentMethods ?? [];
+    setAvailablePaymentMethods(buildAvailablePaymentMethods(paymentMethods));
+    const mapped = mapFetchedToView(fetched);
+    setSettings(mapped);
+    setDraft(mapped);
+    setSaved(true);
+    setDirty(false);
+    setAcknowledgementsAccepted(hasAcknowledged(fetched.acknowledgedAt));
   }, [settingsData, paymentMethodsData]);
 
   // Reset draft when settings change
@@ -203,13 +249,10 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   const setField = useCallback(
     (field: PublicOrderSettingsField, value: string | boolean | string[] | null) => {
-      setDraft((previous) => {
-        const updated = { ...previous, [field]: value };
-        setDirty(true);
-        return updated;
-      });
+      setDirty(true);
+      setDraft((previous) => ({ ...previous, [field]: value }));
     },
-    [setDirty],
+    [setDraft, setDirty],
   );
 
   const mutateSettings = async (buildInput: () => GqlUpdateCampaignPublicOrderSettingsInput) => {
@@ -221,27 +264,12 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
       });
       const updated = result.data?.updateCampaignPublicOrderSettings;
       if (updated) {
-        const mapped: PublicOrderSettingsView = {
-          enabled: updated.enabled,
-          token: updated.shareToken ?? null,
-          allowedPaymentMethods: updated.allowedPaymentMethods ?? [],
-          acknowledgedAt: updated.acknowledgedAt ?? null,
-          ackVersion: updated.acknowledgedAt !== undefined && updated.acknowledgedAt !== null ? PUBLIC_ORDER_ACK_VERSION : null,
-          publicOrderCount: updated.publicOrderCount ?? 0,
-          campaignId: updated.campaignId,
-          campaignName: updated.campaignName,
-          campaignState: updated.campaignState,
-        };
+        const mapped = mapUpdatedToView(updated);
         setSettings(mapped);
         setDraft(mapped);
         setSaved(true);
         setDirty(false);
-        setAcknowledgementsAccepted(
-          !!updated.acknowledgedAt &&
-            updated.acknowledgedAt !== null &&
-            updated.acknowledgedAt !== undefined &&
-            updated.acknowledgedAt !== ''
-        );
+        setAcknowledgementsAccepted(hasAcknowledged(updated.acknowledgedAt));
       }
     } catch (updateError) {
       // TODO: handle error

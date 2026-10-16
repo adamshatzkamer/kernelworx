@@ -16,13 +16,11 @@ export function addressStarted(address: {
   city?: string;
   state?: string;
   zipCode?: string;
-}): boolean {
-  return !!(
-    address?.street?.trim() ||
-    address?.city?.trim() ||
-    address?.state?.trim() ||
-    address?.zipCode?.trim()
-  );
+} | null | undefined): boolean {
+  if (!address) {
+    return false;
+  }
+  return [address.street, address.city, address.state, address.zipCode].some((field) => Boolean(field?.trim()));
 }
 
 /**
@@ -69,6 +67,25 @@ export interface PublicOrderFormState {
 }
 
 /**
+ * Require a phone number or a started address, recording both error fields
+ * when neither is present.
+ */
+function validateContactRequirement(form: PublicOrderFormState, errors: PublicOrderFieldErrors): void {
+  const hasPhone = Boolean(form.phone.trim());
+  const hasAddress = addressStarted(form.address);
+  if (hasPhone || hasAddress) {
+    return;
+  }
+  errors.phone = 'Phone number or a complete address is required';
+  errors.address = 'Phone or a complete address is required';
+}
+
+/** Whether at least one line item has a positive quantity. */
+function hasPositiveLineItems(lineItems: Record<string, number>): boolean {
+  return Object.values(lineItems).some((quantity) => quantity > 0);
+}
+
+/**
  * Validate the entire public order form.
  * @param form - The form state to validate
  * @returns An object with isValid boolean and field-specific errors
@@ -79,37 +96,22 @@ export function validatePublicOrderForm(form: PublicOrderFormState): {
 } {
   const errors: PublicOrderFieldErrors = {};
 
-  // Validate required fields
   if (!form.firstName.trim()) {
     errors.firstName = 'First name is required';
   }
   if (!form.lastName.trim()) {
     errors.lastName = 'Last name is required';
   }
-  if (!form.phone.trim() && !addressStarted(form.address)) {
-    errors.phone = 'Phone number or a complete address is required';
-  }
-
-  // Validate address if phone is not provided (phone or address required)
-  const hasPhone = !!form.phone.trim();
-  const hasAddress = addressStarted(form.address);
-  if (!hasPhone && !hasAddress) {
-    errors.address = 'Phone or a complete address is required';
-  }
-
-  // Validate at least one line item with quantity > 0
-  const hasLineItems = Object.values(form.lineItems).some(qty => qty > 0);
-  if (!hasLineItems) {
+  validateContactRequirement(form, errors);
+  if (!hasPositiveLineItems(form.lineItems)) {
     errors.lineItems = 'At least one product with quantity greater than zero is required';
   }
-
-  // Validate payment method is selected
   if (!form.paymentMethod.trim()) {
     errors.paymentMethod = 'Payment method is required';
   }
 
   return {
-    isValid: Object.values(errors).every(error => error === undefined),
+    isValid: Object.values(errors).every((error) => error === undefined),
     errors,
   };
 }

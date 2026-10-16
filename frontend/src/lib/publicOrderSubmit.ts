@@ -79,7 +79,7 @@ function buildPublicLineItems(form: PublicOrderFormState): {
   quantity: number;
 }[] {
   return Object.entries(form.lineItems)
-    .filter(([_, qty]) => qty > 0)
+    .filter((entry) => entry[1] > 0)
     .map(([productId, quantity]) => ({
       productId,
       quantity,
