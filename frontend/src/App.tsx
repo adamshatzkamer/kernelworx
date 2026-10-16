@@ -13,6 +13,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DevFooter } from './components/DevFooter';
 import { apolloClient } from './lib/apollo';
+import { publicApolloClient } from './lib/publicApollo';
 import { theme } from './lib/theme';
 import { AppLayout } from './components/AppLayout';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
@@ -81,7 +82,7 @@ const PublicOrderPage = lazyRoute(() =>
 const PublicReceiptPage = lazyRoute(() =>
   import('./pages/PublicReceiptPage').then((m) => ({ default: m.PublicReceiptPage })));
 
-function ScrollToHash() {)
+function ScrollToHash() {
   const { pathname, hash } = useLocation();
 
   useEffect(() => {
@@ -114,8 +115,9 @@ function PageLoader() {
 
 function PublicOrderApollo({ children }: { children: React.ReactNode }) {
   return <ApolloProvider client={publicApolloClient}>{children}</ApolloProvider>;
+}
 
-function PublicRoute({ children }: { children: React.ReactNode }) {)
+function PublicRoute({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
 }

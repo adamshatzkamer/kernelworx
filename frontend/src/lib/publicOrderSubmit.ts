@@ -78,7 +78,7 @@ function buildPublicLineItems(form: PublicOrderFormState): {
   productId: string;
   quantity: number;
 }[] {
-  return Object.entries(form.quantities)
+  return Object.entries(form.lineItems)
     .filter(([_, qty]) => qty > 0)
     .map(([productId, quantity]) => ({
       productId,
@@ -93,33 +93,5 @@ export function buildSubmittedSummary(
   form: PublicOrderFormState,
   offer: PublicOfferView,
 ): PublicOrderSubmittedSummary {
-  return {
-    buyerFirstName: form.firstName.trim(),
-    buyerLastName: form.lastName.trim(),
-    buyerPhone: form.phone.trim() ?? undefined,
-    buyerEmail: form.email.trim() ?? undefined,
-    buyerAddress: addressStarted(form.address)
-      ? {
-          street: form.address.street.trim(),
-          city: form.address.city.trim(),
-          state: form.address.state.trim(),
-          zipCode: form.address.zipCode.trim(),
-        }
-      : undefined,
-    lineItems: Object.entries(form.quantities)
-      .filter(([_, qty]) => qty > 0)
-      .map(([productId, quantity]) => ({
-        productId,
-        productName: offer.products.find((p) => p.productId === productId)!.productName,
-        quantity,
-        pricePerUnit: offer.products.find((p) => p.productId === productId)!.price,
-        subtotal: offer.products.find((p) => p.productId === productId)!.price * quantity,
-      })),
-    totalAmount: Object.entries(form.quantities).reduce((total, [productId, quantity]) => {
-      const product = offer.products.find((p) => p.productId === productId);
-      return total + (product ? product.price : 0) * quantity;
-    }, 0),
-    paymentMethodName: form.paymentMethod,
-    notes: form.notes.trim() ?? undefined,
-  };
+
 }

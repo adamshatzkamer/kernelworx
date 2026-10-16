@@ -37,7 +37,7 @@ const emptyForm = (): PublicOrderFormState => ({
   address: { ...EMPTY_ADDRESS },
   paymentMethod: '',
   notes: '',
-  quantities: {},
+  lineItems: {},
 });
 
 interface UsePublicOrderFormArgs {
@@ -65,7 +65,7 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
     setForm((previous) => ({ ...previous, address: { ...previous.address, [field]: value } }));
 
   const setQuantity = (productId: string, quantity: number) =>
-    setForm((previous) => ({ ...previous, quantities: { ...previous.quantities, [productId]: quantity } }));
+    setForm((previous) => ({ ...previous, lineItems: { ...previous.lineItems, [productId]: quantity } }));
 
   const submitNow = async () => {
     setNoEmailPrompt(false);
@@ -94,9 +94,9 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
   };
 
   const submit = async () => {
-    const validationErrors = validatePublicOrderForm(form);
-    setErrors(validationErrors);
-    if (!publicOrderFormIsValid(validationErrors)) return;
+    const validation = validatePublicOrderForm(form);
+    setErrors(validation.errors);
+    if (!publicOrderFormIsValid(form)) return;
     if (!form.email.trim()) {
       setNoEmailPrompt(true);
       return;
@@ -106,11 +106,11 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
 
   const totalAmount = useMemo(
     () =>
-      Object.entries(form.quantities).reduce((total, [productId, quantity]) => {
+      Object.entries(form.lineItems).reduce((total, [productId, quantity]) => {
         const product = offer.products.find((candidate) => candidate.productId === productId);
         return total + (product ? product.price : 0) * quantity;
       }, 0),
-    [form.quantities, offer.products],
+    [form.lineItems, offer.products],
   );
 
   return {
