@@ -1,4 +1,4 @@
-import { buildSharePath } from '../lib/publicOrders';
+import { buildSharePath } from '../../src/lib/publicOrders';
 
 describe('publicOrders', () => {
   describe('buildSharePath', () => {

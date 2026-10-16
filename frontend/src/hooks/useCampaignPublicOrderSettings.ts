@@ -122,7 +122,7 @@ const emptyDraft: PublicOrderSettingsView = {
 };
 
 interface UseCampaignPublicOrderSettingsArgs {
-  campaignId: string;
+  campaignId: string | null;
 }
 
 type RawSettings = NonNullable<GqlGetCampaignPublicOrderSettingsQuery['getCampaignPublicOrderSettings']>;
@@ -183,7 +183,7 @@ function buildAvailablePaymentMethods(paymentMethods: { name: string }[]): strin
 }
 
 export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublicOrderSettingsArgs) {
-  const dbCampaignId = ensureCampaignId(campaignId)!;
+  const dbCampaignId = campaignId ? ensureCampaignId(campaignId) : null;
   const apolloClient = useApolloClient();
   const [updating, setUpdating] = useState(false);
   const [settings, setSettings] = useState<PublicOrderSettingsView | null>(null);
@@ -196,7 +196,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   // Fetch campaign
   const { data: campaignData } = useQuery<{ getCampaign: GqlCampaign }>(GET_CAMPAIGN, {
     variables: { campaignId: dbCampaignId },
-    skip: shouldSkipCampaignQuery(dbCampaignId ?? ''),
+    skip: !dbCampaignId,
   });
 
   // Fetch settings
@@ -208,13 +208,8 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
 
   // Fetch payment methods
   const { data: paymentMethodsData } = useQuery<GqlGetMyPaymentMethodsQuery>(GET_MY_PAYMENT_METHODS, {
-    skip: !campaignId,
+    skip: !dbCampaignId,
   });
-
-  // Helper to check if campaign query should be skipped
-  function shouldSkipCampaignQuery(campaignId: string): boolean {
-    return !campaignId || campaignId === '';
-  }
 
   // Helper to get campaign from query data
 
@@ -255,12 +250,15 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
     [setDraft, setDirty],
   );
 
-  const mutateSettings = async (buildInput: () => GqlUpdateCampaignPublicOrderSettingsInput) => {
+  const mutateSettings = async (
+    campaignKey: string,
+    buildInput: (id: string) => GqlUpdateCampaignPublicOrderSettingsInput,
+  ) => {
     setUpdating(true);
     try {
       const result = await apolloClient.mutate<GqlUpdateCampaignPublicOrderSettingsMutation>({
         mutation: pickUpdateCampaignPublicOrderSettingsDoc(),
-        variables: { input: buildInput() },
+        variables: { input: buildInput(campaignKey) },
       });
       const updated = result.data?.updateCampaignPublicOrderSettings;
       if (updated) {
@@ -280,8 +278,9 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const save = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: draft.enabled,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
@@ -289,8 +288,9 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const rotateToken = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: draft.enabled,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
@@ -299,16 +299,18 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   };
 
   const disable = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: false,
       allowedPaymentMethods: draft.allowedPaymentMethods,
     } as GqlUpdateCampaignPublicOrderSettingsInput));
   };
 
   const enable = async () => {
-    await mutateSettings(() => ({
-      campaignId: dbCampaignId,
+    if (!dbCampaignId) return;
+    await mutateSettings(dbCampaignId, (id) => ({
+      campaignId: id,
       enabled: true,
       allowedPaymentMethods: draft.allowedPaymentMethods,
       acknowledgementsAccepted: acknowledgementsAccepted,
