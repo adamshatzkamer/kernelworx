@@ -10,11 +10,11 @@ import {
   createHttpLink,
   ApolloLink,
   type DefaultContext,
-  type Operation,
   type ErrorLike,
 } from '@apollo/client';
 import { ErrorLink } from '@apollo/client/link/error';
 import { CombinedGraphQLErrors } from '@apollo/client/errors';
+import { setContext } from "@apollo/client/link/context";
 import type { GraphQLFormattedError } from 'graphql';
 
 /**
@@ -31,14 +31,14 @@ const httpLink = createHttpLink({
  * API key link - adds x-api-key header
  */
 const apiKeyLink = setContext(
-  async (_operation: Operation, prevContext: DefaultContext) => {
+  async (_prevContext: DefaultContext) => {
     const apiKey = import.meta.env.VITE_APPSYNC_API_KEY;
     if (!apiKey) {
       throw new Error('VITE_APPSYNC_API_KEY is not defined');
     }
     return {
       headers: {
-        ...prevContext.headers,
+        ..._prevContext.headers,
         'x-api-key': apiKey,
       },
     };
@@ -110,7 +110,7 @@ export function mapErrorCodeToMessage(errorCode: string | undefined, defaultMess
 /**
  * Process GraphQL error
  */
-const processGraphQLError = (err: GraphQLFormattedError, operationName: string | undefined): void => {
+const processGraphQLError = (err: GraphQLFormattedError): void => {
   const typedErr = err as GraphQLErrorWithExtensions;
   const { message, locations, path, extensions } = typedErr;
   const errorCode = extractErrorCode(extensions);
@@ -118,9 +118,6 @@ const processGraphQLError = (err: GraphQLFormattedError, operationName: string |
   if (import.meta.env.DEV) {
     console.error(`[GraphQL error]: Message: ${message}, Code: ${errorCode}, Location: ${locations}, Path: ${path}`);
   }
-
-  const userMessage = mapErrorCodeToMessage(errorCode, message);
-  // We don't dispatch events for public client? The design doesn't specify, but we can keep it for consistency.
   // However, the public client is used in public pages, so we might not want to dispatch events that are handled by the app.
   // For now, we'll just log.
 };
@@ -128,7 +125,7 @@ const processGraphQLError = (err: GraphQLFormattedError, operationName: string |
 /**
  * Process network error
  */
-const processNetworkError = (networkError: ErrorLike, operationName: string | undefined): void => {
+const processNetworkError = (networkError: ErrorLike): void => {
   if (import.meta.env.DEV) {
     console.error(`[Network/Error]: ${networkError.message}`);
   }
@@ -137,11 +134,11 @@ const processNetworkError = (networkError: ErrorLike, operationName: string | un
 /**
  * Error handler used by the ErrorLink (extracted for testability)
  */
-export const handlePublicApolloError = ({ operation, error }: ErrorLink.ErrorHandlerOptions) => {
+export const handlePublicApolloError = ({ error }: ErrorLink.ErrorHandlerOptions) => {
   if (CombinedGraphQLErrors.is(error)) {
-    error.errors.forEach((err) => processGraphQLError(err, operation.operationName));
+    error.errors.forEach((err) => processGraphQLError(err));
   } else {
-    processNetworkError(error as ErrorLike, operation.operationName);
+    processNetworkError(error as ErrorLike);
   }
 };
 

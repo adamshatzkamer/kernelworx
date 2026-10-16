@@ -3,7 +3,7 @@
  * Used when sending IDs to the GraphQL API.
  */
 export const ensurePrefixed = (prefix: string, id?: string | null) => {
-  if (!id) return id || null;
+  if (!id) return id || '';
   const wanted = `${prefix}#`;
   return id.startsWith(wanted) ? id : `${wanted}${id}`;
 };

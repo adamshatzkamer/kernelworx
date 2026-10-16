@@ -325,67 +325,7 @@ export const CampaignSettingsPage: React.FC = () => {
   const allCatalogs = getAllCatalogs(publicCatalogs, myCatalogs);
 
   // Fetch public order settings
-  const {
-    settings: publicOrderSettings,
-    loading: publicOrderLoading,
-    saved: publicOrderSaved,
-    dirty: publicOrderDirty,
-    draft: publicOrderDraft,
-    setField: setPublicOrderField,
-    save: savePublicOrderSettings,
-    rotateToken: rotatePublicOrderToken,
-    disable: disablePublicOrderSettings,
-    enable: enablePublicOrderSettings,
-    acknowledgementsAccepted: publicOrderAcknowledgementsAccepted,
-    setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted,
-  } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
-
-  // Initialize form when campaign loads
-  React.useEffect(() => {
-    const c = getCampaign(campaignData);
-    initializeFormFromCampaign(
-      c,
-      setCampaignName,
-      setStartDate,
-      setEndDate,
-      setCatalogId,
-      setIsActive,
-      setUnitType,
-      setUnitNumber,
-      setCity,
-      setState,
-      setUnitExpanded,
-    );
-  }, [campaignData]);
-
-  // Update campaign mutation
-  const [updateCampaign, { loading: updating }] = useMutation(UPDATE_CAMPAIGN, {
-    refetchQueries: dbProfileId ? [{ query: LIST_CAMPAIGNS_BY_PROFILE, variables: { profileId: dbProfileId } }] : [],
-    onCompleted: () => {
-      refetch().catch(() => {});
-    },
-  });
-
-  // Delete campaign mutation
-  const [deleteCampaign] = useMutation(DELETE_CAMPAIGN, {
-    onCompleted: () => {
-      void navigate(`/scouts/${toUrlId(profileId)}/campaigns`);
-    },
-  });
-
-  const campaign = getCampaign(campaignData);
-
-  // Check if unit-related fields have changed (campaignName, catalogId, or unit fields)
-  const hasUnitRelatedChanges = hasUnitFieldsChanged(
-    campaign,
-    campaignName,
-    catalogId,
-    unitType,
-    unitNumber,
-    city,
-    state,
-  );
-
+  const { settings: publicOrderSettings, loading: publicOrderLoading, setField: setPublicOrderField, save: savePublicOrderSettings, rotateToken: rotatePublicOrderToken, disable: disablePublicOrderSettings, enable: enablePublicOrderSettings, acknowledgementsAccepted: publicOrderAcknowledgementsAccepted, setAcknowledgementsAccepted: setPublicOrderAcknowledgementsAccepted } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
   const handleSaveClick = () => {
     const action = getSaveAction(hasUnitRelatedChanges, hasSharedCampaignCode(campaign));
     const actions: Record<SaveAction, () => void> = {
@@ -597,46 +537,16 @@ export const CampaignSettingsPage: React.FC = () => {
                 />
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
-                  onToggle={setPublicOrderField.bind(null, 'enabled')}
                   onRotate={rotatePublicOrderToken}
                   onDisable={disablePublicOrderSettings}
                   onEnable={enablePublicOrderSettings}
                   saving={updating}
                   onSave={savePublicOrderSettings},
-                  disabled={!publicOrderSettings}
-                />
               </Stack>
             </>
           )}
           {!publicOrderSettings && publicOrderLoading && <LoadingState minHeight="200px" />}
-        </>
-      </Paper>
-
-      {/* Danger Zone */}
-      <Paper
-        sx={{
-          p: 3,
-          borderColor: 'error.main',
-          borderWidth: 1,
-          borderStyle: 'solid',
-        }}
-      >
-        <Typography variant="h6" gutterBottom color="error">
-          Danger Zone
-        </Typography>
-        <Typography variant="body2" color="text.secondary" paragraph>
-          Deleting this campaign will permanently remove all orders and data. This action cannot be undone.
-        </Typography>
-        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
-          Delete Campaign
-        </Button>
-      </Paper>
-
-      <ConfirmDialog
-        open={deleteConfirmOpen}
-        title="Delete Campaign?"
-        onClose={handleDeleteDialogClose}
-        onConfirm={handleDeleteCampaign}
+      <Paper\n        sx={{\n          p: 3,\n          borderColor: \error.main\,\n          borderWidth: 1,\n          borderStyle: \solid\\n        }}>\n        <Typography variant="h6" gutterBottom color="error">\n          Danger Zone\n        </Typography>\n        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>\n          Delete Campaign\n        </Button>\n      </Paper>
         confirmLabel="Delete Permanently"
         confirmColor="error"
       >

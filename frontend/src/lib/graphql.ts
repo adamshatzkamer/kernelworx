@@ -991,4 +991,4 @@ export const UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS = gql`
   }
 `
 
-export const pickUpdateCampaignPublicOrderSettingsDoc = (campaignId: string) => UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS;
+export const pickUpdateCampaignPublicOrderSettingsDoc = () => UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS;

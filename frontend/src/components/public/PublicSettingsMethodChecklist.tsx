@@ -16,7 +16,6 @@ export const PublicSettingsMethodChecklist: React.FC<PublicSettingsMethodCheckli
 }) => {
   // Common payment method options
   const allOptions = ['Cash', 'Check', 'Visa', 'MasterCard', 'American Express', 'Discover'];
-const allOptions = Array.from(new Set([...allowedPaymentMethods, 'Cash', 'Check']));
   return (
     <Box sx={{ mb: 3 }}>
       <Typography variant="h6" gutterBottom>
