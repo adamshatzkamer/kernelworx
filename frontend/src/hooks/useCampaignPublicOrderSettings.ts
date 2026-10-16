@@ -51,8 +51,10 @@ export const PUBLIC_ORDER_ACK_VERSION = 1;
 export interface CampaignPublicOrderSettingsState {
   /** The current settings from the server. */
   settings: PublicOrderSettingsView | null;
-  /** Whether a request is in flight. */
+  /** Whether a settings read request is in flight. */
   loading: boolean;
+  /** Whether a settings mutation (save/rotate/enable/disable) is in flight. */
+  updating: boolean;
   /** Whether the server has acknowledged the current draft. */
   saved: boolean;
   /** Whether the user has unsaved changes. */
@@ -126,7 +128,7 @@ interface UseCampaignPublicOrderSettingsArgs {
 export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublicOrderSettingsArgs) {
   const dbCampaignId = ensureCampaignId(campaignId)!;
   const apolloClient = useApolloClient();
-  const [, setUpdating] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [settings, setSettings] = useState<PublicOrderSettingsView | null>(null);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -287,6 +289,7 @@ export function useCampaignPublicOrderSettings({ campaignId }: UseCampaignPublic
   return {
     settings,
     loading,
+    updating,
     saved,
     dirty,
     draft,
