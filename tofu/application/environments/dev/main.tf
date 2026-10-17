@@ -173,10 +173,12 @@ module "iam" {
   cloudfront_distribution_arn = module.cloudfront.distribution_arn
 
   # KW-PUBLIC-ORDERS-SES-1: the public-orders confirmation mailer sends from
-  # the dev-owned subdomain identity. Prod and ephemeral pass nothing (null =
-  # no SES grant).
-  ses_order_identity_arn  = module.ses.identity_arn
-  ses_order_template_arns = module.ses.template_arns
+  # the dev-owned subdomain identity. Prod and ephemeral pass nothing (the
+  # static enabled flag defaults false = no SES grant; the arn itself is
+  # apply-time-unknown on the creating apply, so counts key off the flag).
+  ses_order_emails_enabled = true
+  ses_order_identity_arn   = module.ses.identity_arn
+  ses_order_template_arns  = module.ses.template_arns
 }
 
 # SES sending identity for application transactional mail (public-order
