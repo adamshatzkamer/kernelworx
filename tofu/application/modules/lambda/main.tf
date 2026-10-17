@@ -100,10 +100,10 @@ locals {
   # address is configured; the three other values are set together with it by
   # every environment that instantiates the SES module.
   ses_env = var.ses_order_from_address != "" ? {
-    SES_ORDER_FROM_ADDRESS      = var.ses_order_from_address
-    SES_ORDER_TEMPLATE          = var.ses_order_template_name
-    SES_ORDER_SELLER_TEMPLATE   = var.ses_order_seller_template_name
-    SITE_URL                    = var.public_site_url
+    SES_ORDER_FROM_ADDRESS    = var.ses_order_from_address
+    SES_ORDER_TEMPLATE        = var.ses_order_template_name
+    SES_ORDER_SELLER_TEMPLATE = var.ses_order_seller_template_name
+    SITE_URL                  = var.public_site_url
   } : {}
 
   # Use provided paths or default to relative paths from module

@@ -99,14 +99,21 @@ data "aws_route53_zone" "mail" {
 # Easy DKIM CNAMEs: <token>._domainkey.<mail_subdomain>.<zone> -> <token>.dkim.amazonses.com.
 # New names under the dev-owned subdomain only — additive by construction, and
 # the identity verification is driven by these records (no _amazonses TXT).
+#
+# Easy DKIM always yields exactly three CNAME tokens, and the token list is
+# known only after the identity is applied — keying a for_each over it
+# hard-fails every plan ("Invalid for_each argument ... known only after
+# apply"). So the record count is the static DKIM contract (3) and each
+# record reads its token positionally; the token itself is still SES-managed
+# data, never hardcoded here.
 resource "aws_route53_record" "dkim" {
-  for_each = var.create && var.manage_dns ? toset(aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens) : toset([])
+  count = var.create && var.manage_dns ? 3 : 0
 
   zone_id = data.aws_route53_zone.mail[0].zone_id
-  name    = "${each.value}._domainkey.${local.mail_domain}"
+  name    = "${aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens[count.index]}._domainkey.${local.mail_domain}"
   type    = "CNAME"
   ttl     = 300
-  records = ["${each.value}.dkim.amazonses.com"]
+  records = ["${aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens[count.index]}.dkim.amazonses.com"]
 }
 
 # Order-confirmation templates (spec §6: buyer + seller variants, namespaced per
