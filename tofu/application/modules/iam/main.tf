@@ -733,10 +733,12 @@ resource "aws_iam_role_policy" "lambda_account_reporting_s3" {
 #     be an unused permission on an anonymous-facing role.
 #
 # SES scope (KW-PUBLIC-ORDERS-SES-1): ses:SendTemplatedEmail on the
-# environment's order-confirmation identity + templates only, and only where
-# the SES module is instantiated. The mailer is best-effort and the sandbox
-# recipient set is account-level, so this grant deliberately cannot read or
-# mutate identities, templates, or suppression lists.
+# environment's order-confirmation identity + templates + the account's own
+# SES identities as recipients (SES authorizes the sandbox-verified recipient
+# identity on every send), and only where the SES module is instantiated. The
+# mailer is best-effort and the sandbox recipient set is verification-gated,
+# so this grant deliberately cannot read or mutate identities, templates, or
+# suppression lists.
 #
 # S3 scope: the offer hands the buyer pre-signed QR image URLs, and signing
 # itself makes no S3 call. The grant is still load-bearing: S3 authorizes a
@@ -823,17 +825,39 @@ resource "aws_iam_role_policy" "lambda_public_orders_s3" {
 
 # SES order-confirmation mailer grant (KW-PUBLIC-ORDERS-SES-1, spec §6): the
 # best-effort email step of the publicCreateOrder pipeline sends through
-# ses:SendTemplatedEmail, scoped to the environment's sending identity and its
-# two namespaced templates. Present only where the SES module is instantiated
-# (dev); ephemeral and prod-until-its-slice pass null and the whole statement
-# is omitted, matching the handler's "no SES env vars -> no client" branch.
+# ses:SendTemplatedEmail, scoped to the environment's sending identity, its
+# two namespaced templates, and the account's SES identities as recipients.
+# Present only where the SES module is instantiated (dev); ephemeral and
+# prod-until-its-slice pass null and the whole statement is omitted, matching
+# the handler's "no SES env vars -> no client" branch.
+#
+# The recipient scope is load-bearing, not belt-and-braces (dev deploy proof,
+# 2026-10-17): SES evaluates ses:SendTemplatedEmail against EVERY identity in
+# the call, including the sandbox-verified RECIPIENT email-address identity —
+# an AccessDenied names arn:...:identity/<buyer-address> even though the buyer
+# never configured anything. Buyer addresses are arbitrary per order, so the
+# only stable scope is the account's own identity namespace (identity/*);
+# send-only, and in the sandbox the recipient set is still gated by
+# verification, so this grants no access to third parties' mail.
+data "aws_partition" "ses_recipients" {}
+data "aws_region" "ses_recipients" {}
+data "aws_caller_identity" "ses_recipients" {}
+
+locals {
+  ses_account_identity_arns = [
+    "arn:${data.aws_partition.ses_recipients.partition}:ses:${data.aws_region.ses_recipients.name}:${data.aws_caller_identity.ses_recipients.account_id}:identity/*"
+  ]
+}
+
 data "aws_iam_policy_document" "lambda_public_orders_ses" {
   count = var.ses_order_emails_enabled ? 1 : 0
 
   statement {
-    effect    = "Allow"
-    actions   = ["ses:SendTemplatedEmail"]
-    resources = concat([var.ses_order_identity_arn], var.ses_order_template_arns)
+    effect = "Allow"
+    actions = ["ses:SendTemplatedEmail"]
+    # The sending identity is inside the account identity wildcard; it is
+    # listed explicitly so the send source stays self-documenting.
+    resources = concat([var.ses_order_identity_arn], local.ses_account_identity_arns, var.ses_order_template_arns)
   }
 }
 

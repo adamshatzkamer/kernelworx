@@ -159,17 +159,23 @@ def test_s3_policy_is_getobject_only_on_the_payment_qr_prefix() -> None:
 
 def test_ses_policy_is_template_send_only_on_the_order_identity_and_templates() -> None:
     """The SES slice grant (KW-PUBLIC-ORDERS-SES-1): ses:SendTemplatedEmail scoped to
-    the environment's sending identity plus its two namespaced templates, present
-    only where the SES module is instantiated (count is conditional on the
-    identity ARN). The mailer is best-effort and cannot touch identities,
-    templates, or suppression lists beyond sending."""
+    the environment's sending identity, the account's own SES identities
+    (SES authorizes the sandbox-verified RECIPIENT identity too, so buyer
+    addresses need the account identity namespace), and its two namespaced
+    templates. Present only where the SES module is instantiated (count is
+    conditional on the identity ARN). The mailer is best-effort and cannot
+    touch identities, templates, or suppression lists beyond sending."""
     statements = _policy_documents()["lambda_public_orders_ses"]
     assert len(statements) == 1
     assert statements[0].get("effect") == "Allow"
     assert _as_list(statements[0].get("actions")) == ["ses:SendTemplatedEmail"]
     assert _as_list(statements[0].get("resources")) == [
-        "${concat([var.ses_order_identity_arn], var.ses_order_template_arns)}"
+        "${concat([var.ses_order_identity_arn], local.ses_account_identity_arns, var.ses_order_template_arns)}"
     ]
+    # The recipient namespace is the account's own SES identities, not "*":
+    # SES authorizes the sandbox-verified recipient identity on every send.
+    locals_block = [b for b in load_hcl(IAM_MAIN).get("locals", []) if "ses_account_identity_arns" in b][0]
+    assert ":identity/*" in locals_block["ses_account_identity_arns"][0]
 
 
 def test_no_write_action_appears_in_either_public_orders_policy() -> None:
