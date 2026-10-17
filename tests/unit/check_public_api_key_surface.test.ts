@@ -335,8 +335,8 @@ describe("public API key directive surface (schema.graphql)", () => {
 
   test("UpdateOrderInput carries the lifecycle status but never the provenance", () => {
     // The lifecycle slice: status is the only lifecycle-writable attribute in
-    // the authenticated update input. orderSource and receiptToken stay
-    // unwritable, so a client can never relabel an authenticated order as
+    // the authenticated update input. orderSource and receiptToken are never
+    // writable, so a client can never relabel an authenticated order as
     // public (which is what gates the CONFIRMED transition in the resolver)
     // or mint its own receipt capability.
     const input = new Set(parseFields(definition("UpdateOrderInput").body).map((f) => f.name));
