@@ -14,7 +14,12 @@ import { enrichLineItems } from './lib/line_items.js';
 //
 // status, receiptToken and orderSource are never written by any other branch
 // of this resolver, so an ordinary field edit can never clear them.
-function applyStatusUpdate(input, order, updates, exprValues) {
+//
+// `status` is a DynamoDB RESERVED WORD, so the SET clause must address it
+// through an expression-attribute-name placeholder (#status): a bare
+// `SET status = :status` fails at runtime with "Attribute name is a reserved
+// keyword" - invisible to unit tests that only read the expression string.
+function applyStatusUpdate(input, order, updates, exprValues, exprNames) {
     // Key presence, not the value: this runtime can surface an omitted nullable
     // input field as a null value (the #506 lesson from paymentMethod), and an
     // explicit null must never clear a CONFIRMED order's status.
@@ -37,8 +42,9 @@ function applyStatusUpdate(input, order, updates, exprValues) {
         util.error('Order is already confirmed; there is no path back from CONFIRMED', 'INVALID_INPUT');
         return false;
     }
-    updates.push('status = :status');
+    updates.push('#status = :status');
     exprValues[':status'] = input.status;
+    exprNames['#status'] = 'status';
     return true;
 }
 
@@ -57,6 +63,7 @@ export function request(ctx) {
 
     const updates = [];
     const exprValues = {};
+    const exprNames = {};
 
     if (input.customerName !== undefined) {
         if (typeof input.customerName !== 'string' || !input.customerName.trim()) {
@@ -140,7 +147,7 @@ export function request(ctx) {
         exprValues[':notes'] = input.notes;
     }
 
-    if (!applyStatusUpdate(input, order, updates, exprValues)) {
+    if (!applyStatusUpdate(input, order, updates, exprValues, exprNames)) {
         return;
     }
 
@@ -153,13 +160,18 @@ export function request(ctx) {
 
     const updateExpression = 'SET ' + updates.join(', ');
 
+    const update = {
+        expression: updateExpression,
+        expressionValues: util.dynamodb.toMapValues(exprValues)
+    };
+    if (Object.keys(exprNames).length > 0) {
+        update.expressionNames = exprNames;
+    }
+
     return {
         operation: 'UpdateItem',
         key: util.dynamodb.toMapValues({ campaignId: order.campaignId, orderId: order.orderId }),
-        update: {
-            expression: updateExpression,
-            expressionValues: util.dynamodb.toMapValues(exprValues)
-        }
+        update: update
     };
 }
 

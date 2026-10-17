@@ -158,9 +158,17 @@ describe('update_order_fn status transition', () => {
     const result = request(ctxFor(publicOrder, { status: 'CONFIRMED' }));
 
     assert.strictEqual(result.operation, 'UpdateItem');
-    assert.match(result.update.expression, /status = :status/);
+    assert.match(result.update.expression, /#status = :status/);
     assert.match(result.update.expression, /updatedAt = :updatedAt/);
     assert.strictEqual(result.update.expressionValues[':status'], 'CONFIRMED');
+    // `status` is a DynamoDB reserved word: the attribute must be addressed
+    // through the expression-attribute-name map, never bare in the expression
+    // (a bare SET status = ... fails at runtime with "reserved keyword").
+    assert.deepStrictEqual(result.update.expressionNames, { '#status': 'status' });
+    assert.ok(
+        !/(^|[^#:])\bstatus\b/.test(result.update.expression),
+        `no bare status attribute in: ${result.update.expression}`,
+    );
     // The write is a SET of status only: it must never touch the capability or
     // the provenance attributes.
     assert.doesNotMatch(result.update.expression, /receiptToken/);
@@ -220,7 +228,8 @@ describe('update_order_fn status transition', () => {
     const ctx = { stash: { order: publicOrder, catalog: null }, args: { input: { status: 'CONFIRMED' } } };
 
     const result = request(ctx);
-    assert.match(result.update.expression, /status = :status/);
+    assert.match(result.update.expression, /#status = :status/);
+    assert.deepStrictEqual(result.update.expressionNames, { '#status': 'status' });
   });
 });
 
