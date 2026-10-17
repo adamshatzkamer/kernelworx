@@ -171,14 +171,20 @@ def test_iam_ses_grant_is_conditional_on_the_identity_arn() -> None:
     source = IAM_MAIN.read_text()
     assert 'variable "ses_order_identity_arn"' in source
     assert 'variable "ses_order_template_arns"' in source
+    assert 'variable "ses_order_emails_enabled"' in source
     assert '"ses:SendTemplatedEmail"' in source
-    # The grant only exists where the SES module is instantiated.
-    assert "var.ses_order_identity_arn != null ? 1 : 0" in source
+    # The grant only exists where the SES module is instantiated, and the
+    # count keys off the STATIC flag: the identity arn is apply-time-unknown
+    # on the creating apply (dev deploy 39006803271 failed plan with
+    # "Invalid count argument" when counts keyed off the arn).
+    assert source.count("var.ses_order_emails_enabled ? 1 : 0") == 2
+    assert "var.ses_order_identity_arn != null ? 1 : 0" not in source
 
 
 def test_dev_wires_ses_outputs_into_iam_and_lambda() -> None:
     source = DEV_MAIN.read_text()
-    assert "ses_order_identity_arn  = module.ses.identity_arn" in source
-    assert "ses_order_template_arns = module.ses.template_arns" in source
+    assert "ses_order_emails_enabled = true" in source
+    assert "ses_order_identity_arn   = module.ses.identity_arn" in source
+    assert "ses_order_template_arns  = module.ses.template_arns" in source
     assert "ses_order_from_address         = module.ses.from_address" in source
     assert '"https://${local.site_domain}"' in source

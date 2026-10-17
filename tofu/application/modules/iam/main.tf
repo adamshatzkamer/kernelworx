@@ -49,6 +49,12 @@ variable "ses_order_template_arns" {
   default     = []
 }
 
+variable "ses_order_emails_enabled" {
+  description = "Static toggle for the SES order-confirmation grant. Must be known at plan time: the identity arn is apply-time-unknown on the creating apply, so count cannot key off it. true only where the SES module is instantiated (dev)."
+  type        = bool
+  default     = false
+}
+
 variable "prevent_destroy" {
   description = "Set to false for ephemeral environments that must be destroyed after use."
   type        = bool
@@ -822,7 +828,7 @@ resource "aws_iam_role_policy" "lambda_public_orders_s3" {
 # (dev); ephemeral and prod-until-its-slice pass null and the whole statement
 # is omitted, matching the handler's "no SES env vars -> no client" branch.
 data "aws_iam_policy_document" "lambda_public_orders_ses" {
-  count = var.ses_order_identity_arn != null ? 1 : 0
+  count = var.ses_order_emails_enabled ? 1 : 0
 
   statement {
     effect    = "Allow"
@@ -832,7 +838,7 @@ data "aws_iam_policy_document" "lambda_public_orders_ses" {
 }
 
 resource "aws_iam_role_policy" "lambda_public_orders_ses" {
-  count = var.ses_order_identity_arn != null ? 1 : 0
+  count = var.ses_order_emails_enabled ? 1 : 0
 
   name   = "ses-order-emails"
   role   = aws_iam_role.lambda_public_orders_execution.id
