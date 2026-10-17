@@ -973,7 +973,7 @@ export const GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS = gql`
       campaignState
     }
   }
-`
+`;
 
 export const UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS = gql`
   mutation UpdateCampaignPublicOrderSettings($input: UpdateCampaignPublicOrderSettingsInput!) {
@@ -989,6 +989,6 @@ export const UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS = gql`
       campaignState
     }
   }
-`
+`;
 
 export const pickUpdateCampaignPublicOrderSettingsDoc = () => UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS;

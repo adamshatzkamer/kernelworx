@@ -111,7 +111,7 @@ def _format_amount(value: Any) -> str:
     """Money as a two-decimal string, matching the receipt page formatCurrency."""
     try:
         return f"{Decimal(str(value)):.2f}"
-    except (InvalidOperation, ValueError):
+    except InvalidOperation, ValueError:
         return str(value)
 
 
