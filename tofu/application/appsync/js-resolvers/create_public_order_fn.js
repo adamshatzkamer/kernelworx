@@ -119,6 +119,15 @@ export function response(ctx) {
         return null;
     }
 
+    // Stash the exact stored row for the best-effort email step (spec §5.3
+    // step 8): the mailer is payload-driven and never re-reads orders, so the
+    // enriched line items, totals, buyer contact, and the minted receiptToken
+    // travel to it through the stash. The receipt composed below stays the
+    // step result (it is what the pipeline root passes through).
+    if (ctx.stash) {
+        ctx.stash.orderItem = ctx.result;
+    }
+
     // PutItem returns the written item, so the receipt is composed from what was
     // actually stored - including the minted receiptToken - rather than from a
     // second read that could race.

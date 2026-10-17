@@ -37,6 +37,18 @@ variable "cloudfront_distribution_arn" {
   default     = null
 }
 
+variable "ses_order_identity_arn" {
+  description = "ARN of the SES identity the public-orders confirmation mailer sends from. When null (ephemeral, and prod until its SES slice lands), the public-orders role carries no SES grant."
+  type        = string
+  default     = null
+}
+
+variable "ses_order_template_arns" {
+  description = "ARNs of the SES order-confirmation templates the public-orders mailer may send. Empty when no SES module is instantiated."
+  type        = list(string)
+  default     = []
+}
+
 variable "prevent_destroy" {
   description = "Set to false for ephemeral environments that must be destroyed after use."
   type        = bool
@@ -714,6 +726,12 @@ resource "aws_iam_role_policy" "lambda_account_reporting_s3" {
 #     under the AppSync service role, so a PutItem/UpdateItem grant here would
 #     be an unused permission on an anonymous-facing role.
 #
+# SES scope (KW-PUBLIC-ORDERS-SES-1): ses:SendTemplatedEmail on the
+# environment's order-confirmation identity + templates only, and only where
+# the SES module is instantiated. The mailer is best-effort and the sandbox
+# recipient set is account-level, so this grant deliberately cannot read or
+# mutate identities, templates, or suppression lists.
+#
 # S3 scope: the offer hands the buyer pre-signed QR image URLs, and signing
 # itself makes no S3 call. The grant is still load-bearing: S3 authorizes a
 # pre-signed GET against the SIGNING principal's policy at request time (#353),
@@ -795,6 +813,30 @@ resource "aws_iam_role_policy" "lambda_public_orders_s3" {
   name   = "s3-qr-codes"
   role   = aws_iam_role.lambda_public_orders_execution.id
   policy = data.aws_iam_policy_document.lambda_public_orders_s3.json
+}
+
+# SES order-confirmation mailer grant (KW-PUBLIC-ORDERS-SES-1, spec §6): the
+# best-effort email step of the publicCreateOrder pipeline sends through
+# ses:SendTemplatedEmail, scoped to the environment's sending identity and its
+# two namespaced templates. Present only where the SES module is instantiated
+# (dev); ephemeral and prod-until-its-slice pass null and the whole statement
+# is omitted, matching the handler's "no SES env vars -> no client" branch.
+data "aws_iam_policy_document" "lambda_public_orders_ses" {
+  count = var.ses_order_identity_arn != null ? 1 : 0
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ses:SendTemplatedEmail"]
+    resources = concat([var.ses_order_identity_arn], var.ses_order_template_arns)
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_public_orders_ses" {
+  count = var.ses_order_identity_arn != null ? 1 : 0
+
+  name   = "ses-order-emails"
+  role   = aws_iam_role.lambda_public_orders_execution.id
+  policy = data.aws_iam_policy_document.lambda_public_orders_ses[0].json
 }
 
 # =============================================================================
