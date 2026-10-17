@@ -62,16 +62,9 @@ variable "subject_prefix" {
   default     = ""
 }
 
-variable "reply_to" {
-  description = "Reply-To address on outgoing order mail. Defaults to the sending address."
-  type        = string
-  default     = ""
-}
-
 locals {
   mail_domain  = "${var.mail_subdomain}.${var.zone_domain}"
   from_address = "orders@${local.mail_domain}"
-  reply_to     = var.reply_to != "" ? var.reply_to : local.from_address
 
   # Namespaced per environment (spec §6) so identities/templates never collide
   # across environments that share an account.

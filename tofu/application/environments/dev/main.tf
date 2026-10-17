@@ -297,10 +297,10 @@ module "lambda" {
   # module. Ephemeral and prod pass nothing, so the public-orders Lambda
   # carries no SES env vars and the mailer honestly reports
   # "not configured".
-  ses_order_from_address           = module.ses.from_address
-  ses_order_template_name          = module.ses.order_template_name
-  ses_order_seller_template_name   = module.ses.order_seller_template_name
-  public_site_url                  = "https://${local.site_domain}"
+  ses_order_from_address         = module.ses.from_address
+  ses_order_template_name        = module.ses.order_template_name
+  ses_order_seller_template_name = module.ses.order_seller_template_name
+  public_site_url                = "https://${local.site_domain}"
 }
 
 module "appsync" {
@@ -437,8 +437,9 @@ output "appsync_api_url" {
 # scripts/generate_integration_env.py to write the TEST_APPSYNC_API_KEY and
 # VITE_APPSYNC_API_KEY managed keys, and by the deploy build to bake
 # VITE_APPSYNC_API_KEY into the frontend bundle. Not a secret: it is shipped in
-# the public bundle and only reaches the @aws_api_key fields, each of which also
-# requires a valid per-campaign bearer token.
+# the public bundle and only reaches the @aws_api_key fields, each of which
+# also requires the per-campaign share token, a GraphQL argument checked
+# inside the resolver (NOT_FOUND when absent).
 output "appsync_api_key" {
   description = "AppSync API key for the public-orders (@aws_api_key) fields"
   value       = module.appsync.api_key

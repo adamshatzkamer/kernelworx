@@ -180,5 +180,5 @@ def test_dev_wires_ses_outputs_into_iam_and_lambda() -> None:
     source = DEV_MAIN.read_text()
     assert "ses_order_identity_arn  = module.ses.identity_arn" in source
     assert "ses_order_template_arns = module.ses.template_arns" in source
-    assert "ses_order_from_address           = module.ses.from_address" in source
+    assert "ses_order_from_address         = module.ses.from_address" in source
     assert '"https://${local.site_domain}"' in source
