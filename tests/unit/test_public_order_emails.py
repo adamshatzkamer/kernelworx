@@ -172,9 +172,9 @@ class TestSellerEmail:
         assert data["buyerLastName"] == "O'Brien"
         assert data["buyerEmail"] == BUYER_EMAIL
         assert data["buyerPhone"] == BUYER_PHONE
-        assert data["totalAmount"] == 10.0
+        assert data["totalAmount"] == "10.00"
         assert data["paymentMethod"] == "Cash"
-        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": 10.0}]
+        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "10.00"}]
 
     def test_account_without_email_skips_seller_with_warning_but_succeeds(
         self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any, caplog: pytest.LogCaptureFixture
@@ -345,7 +345,22 @@ class TestEdgeCases:
         handle_send_order_emails(make_event(order=order), None)
 
         data = json.loads(fake_ses.calls[-1]["TemplateData"])
-        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": 10.0}]
+        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "10.00"}]
+
+    def test_amounts_render_with_two_decimals_like_the_receipt_page(
+        self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
+    ) -> None:
+        order = {
+            **ORDER,
+            "lineItems": [{"productId": "p1", "productName": "Cookies", "quantity": 2, "subtotal": 12.5}],
+            "totalAmount": 12.5,
+        }
+
+        handle_send_order_emails(make_event(order=order), None)
+
+        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        assert data["totalAmount"] == "12.50"
+        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "12.50"}]
 
     def test_missing_owner_account_id_skips_the_seller_email(
         self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any

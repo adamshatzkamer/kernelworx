@@ -29,6 +29,7 @@ Contract (spec §3.3/§6):
 
 import json
 import os
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
@@ -106,6 +107,14 @@ def _absolute_receipt_url(config: Dict[str, str], receipt_url: Any) -> Optional[
     return config["site_url"] + receipt_url
 
 
+def _format_amount(value: Any) -> str:
+    """Money as a two-decimal string, matching the receipt page formatCurrency."""
+    try:
+        return f"{Decimal(str(value)):.2f}"
+    except (InvalidOperation, ValueError):
+        return str(value)
+
+
 def _line_item_template_data(order: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Line items for the templates, exactly as stored (server-priced)."""
     items = order.get("lineItems")
@@ -117,7 +126,7 @@ def _line_item_template_data(order: Dict[str, Any]) -> List[Dict[str, Any]]:
             {
                 "productName": str(item.get("productName") or ""),
                 "quantity": item.get("quantity"),
-                "subtotal": item.get("subtotal"),
+                "subtotal": _format_amount(item.get("subtotal")),
             }
         )
     return shaped
@@ -129,7 +138,7 @@ def _buyer_template_data(order: Dict[str, Any], receipt_url: Optional[str], camp
         "orderId": str(order.get("orderId") or ""),
         "sellerName": str(order.get("sellerName") or ""),
         "campaignName": campaign_name,
-        "totalAmount": order.get("totalAmount"),
+        "totalAmount": _format_amount(order.get("totalAmount")),
         "paymentMethod": str(order.get("paymentMethod") or ""),
         "lineItems": _line_item_template_data(order),
         "receiptUrl": receipt_url or "",
