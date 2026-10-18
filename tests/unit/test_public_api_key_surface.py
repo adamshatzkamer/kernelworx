@@ -260,8 +260,15 @@ def test_ephemeral_env_exports_the_key_in_both_blocks():
     for key in ("TEST_APPSYNC_API_KEY", "VITE_APPSYNC_API_KEY"):
         per_block = {}
         for label, (start, end) in blocks.items():
-            pattern = rf'^\s*echo "export {key}=\$\(tofu output -raw appsync_api_key\)"'
-            per_block[label] = sum(1 for line in lines[start:end] if re.match(pattern, line))
+            block = lines[start:end]
+            # Each block resolves the output once into APPSYNC_API_KEY - tolerating
+            # a stack whose state predates the key - and echoes that variable per
+            # key, so the contract is the read plus the echo, not one line shape.
+            reads_key_output = any(
+                re.match(r"^\s*APPSYNC_API_KEY=\$\(tofu output -raw appsync_api_key", line) for line in block
+            )
+            echoes = sum(1 for line in block if re.match(rf'^\s*echo "export {key}=\$APPSYNC_API_KEY"', line))
+            per_block[label] = echoes if reads_key_output else 0
         assert per_block["up"] == 1 and per_block["env"] == 1 and per_block["down"] == 0, (
             f"{key} must be exported exactly once in the up and env blocks and never in down; got {per_block}"
         )
