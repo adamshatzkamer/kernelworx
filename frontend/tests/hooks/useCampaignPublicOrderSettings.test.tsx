@@ -234,6 +234,59 @@ describe('useCampaignPublicOrderSettings', () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it('save maps a null-bearing mutation response onto the view defaults', async () => {
+    const updated = makeSettings({
+      shareToken: null,
+      allowedPaymentMethods: null,
+      acknowledgedAt: null,
+      ackVersion: null,
+    });
+    const mocks = [
+      campaignMock,
+      settingsMock(),
+      paymentMethodsMock(),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: [],
+              acknowledgementsAccepted: true,
+            },
+          },
+        },
+        result: { data: { updateCampaignPublicOrderSettings: updated } },
+      },
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.setField('allowedPaymentMethods', []);
+    });
+
+    await act(async () => {
+      await result.current.save();
+    });
+
+    await waitFor(() => {
+      expect(result.current.updating).toBe(false);
+    });
+    // Every null on the response lands on its default rather than leaking null.
+    expect(result.current.settings?.token).toBeNull();
+    expect(result.current.settings?.allowedPaymentMethods).toEqual([]);
+    expect(result.current.settings?.acknowledgedAt).toBeNull();
+    expect(result.current.settings?.ackVersion).toBeNull();
+  });
+
   it('rotateToken requests a new share token', async () => {
     const rotated = makeSettings({ shareToken: 'tok-2' });
     const mocks = [
