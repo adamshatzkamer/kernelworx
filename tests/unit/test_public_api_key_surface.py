@@ -197,10 +197,12 @@ def test_expires_is_inside_the_service_cap_and_still_live():
 
     This test is a deliberate date gate: it starts failing when the declared key
     would be rejected or has expired, which is the renewal runbook firing (see
-    the `expires` comment in api.tf). The ExpiredAPIKeys CloudWatch alarm is
-    PLANNED in the public-orders spec's section 9 with the feature's later ops
-    slice and is NOT deployed yet - no alarm watches for day-zero key expiry
-    today, so this test is the only expiry check in the meantime.
+    the `expires` comment in api.tf and docs/PUBLIC_API_KEY_RUNBOOK.md). The
+    runtime half of the spec's ExpiredAPIKeys alarm now ships in
+    tofu/application/modules/alarms/ (a scheduled reminder derived from this
+    same `expires` value, plus the AppSync 4xx alarm that catches day-zero
+    expiry as a symptom — AWS publishes no ExpiredAPIKeys metric). This test
+    stays the CI half.
     """
     value = _norm(_api_key_body()["expires"])
     parsed = datetime.strptime(value, EXPIRES_FORMAT)

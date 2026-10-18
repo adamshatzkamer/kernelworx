@@ -111,6 +111,12 @@ variable "github_token" {
   description = "Optional GitHub token for authenticating calls to api.github.com/meta"
 }
 
+variable "alert_email" {
+  type        = string
+  default     = "dave@repeatersolutions.com"
+  description = "Ops address the CloudWatch alarms notify (same address the bootstrap cost budgets notify). The SNS email subscription needs a one-time confirmation."
+}
+
 # Local computed values
 locals {
   name_prefix  = "kernelworx"
@@ -279,6 +285,24 @@ module "appsync" {
   lambda_function_arns = module.lambda.function_arns
 }
 
+# Operational alarms for the public-orders surface (spec §9, slice 10). Prod
+# carries the full set: the AppSync 4xx/throttle alarm, the SES reputation
+# alarms (account-level reputation, so prod only — Q3), and the scheduled
+# public-orders API-key expiry reminder (the spec's ExpiredAPIKeys alarm; see
+# docs/PUBLIC_API_KEY_RUNBOOK.md for why it is a scheduled reminder rather than
+# a metric alarm).
+module "alarms" {
+  source = "../../modules/alarms"
+
+  name_prefix                     = local.name_prefix
+  environment                     = var.environment
+  appsync_api_id                  = module.appsync.api_id
+  alert_email                     = var.alert_email
+  api_key_expiry                  = module.appsync.api_key_expires
+  ses_reputation_enabled          = true
+  api_key_expiry_reminder_enabled = true
+}
+
 module "cloudfront" {
   source = "../../modules/cloudfront"
 
@@ -403,6 +427,11 @@ output "appsync_api_url" {
 output "appsync_api_key" {
   description = "AppSync API key for the public-orders (@aws_api_key) fields"
   value       = module.appsync.api_key
+}
+
+output "appsync_api_key_expires" {
+  description = "RFC3339 expiry of the public-orders AppSync API key (renewal runbook: docs/PUBLIC_API_KEY_RUNBOOK.md)"
+  value       = module.appsync.api_key_expires
 }
 
 output "cloudfront_distribution_id" {

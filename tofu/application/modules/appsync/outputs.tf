@@ -42,3 +42,10 @@ output "api_key_id" {
   value       = aws_appsync_api_key.public_orders.id
   description = "AppSync public-orders API key ID (for import and recovery tooling)"
 }
+
+# The key's own expiry, exported so the ops alarms module can derive its renewal
+# reminder from it instead of restating a second date that can drift.
+output "api_key_expires" {
+  value       = aws_appsync_api_key.public_orders.expires
+  description = "RFC3339 expiry of the public-orders AppSync API key"
+}
