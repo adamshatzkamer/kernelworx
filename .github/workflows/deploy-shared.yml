@@ -99,6 +99,8 @@ jobs:
     outputs:
       user_pool_id: ${{ steps.tofu_outputs.outputs.user_pool_id }}
       client_id: ${{ steps.tofu_outputs.outputs.client_id }}
+      appsync_api_url: ${{ steps.tofu_outputs.outputs.appsync_api_url }}
+      appsync_api_key: ${{ steps.tofu_outputs.outputs.appsync_api_key }}
     environment:
       name: ${{ inputs.environment }}
     env:
@@ -349,6 +351,11 @@ jobs:
           echo "site_url=$(tofu output -raw site_url)" >> $GITHUB_OUTPUT
           echo "static_assets_bucket=$(tofu output -raw static_assets_bucket)" >> $GITHUB_OUTPUT
           echo "cloudfront_distribution_id=$(tofu output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
+          # The smoke suite's scripted auth-boundary tests call AppSync directly,
+          # so the endpoint and the public-orders key are exported to that job
+          # below. The key is not a secret here: it grants only the @aws_api_key
+          # fields; the per-campaign share token in the URL is the authorization.
+          echo "appsync_api_url=$(tofu output -raw appsync_api_url)" >> $GITHUB_OUTPUT
           # The public-orders API key is a Terraform output threaded into the
           # frontend build environment as VITE_APPSYNC_API_KEY (it grants only
           # the @aws_api_key fields; the per-campaign share token in the URL is
@@ -626,6 +633,16 @@ jobs:
           TEST_READONLY_PASSWORD: ${{ secrets.TEST_READONLY_PASSWORD }}
           TEST_USER_POOL_ID: ${{ secrets.TEST_USER_POOL_ID }}
           TEST_REGION: ${{ secrets.AWS_REGION }}
+          # Scripted auth-boundary probes (test_smoke_auth_boundary.py) and the
+          # through-site-origin API-key call (test_smoke_public_orders.py). The
+          # key is not a secret here: it grants only the @aws_api_key fields.
+          TEST_APPSYNC_ENDPOINT: ${{ needs.deploy.outputs.appsync_api_url }}
+          TEST_APPSYNC_API_KEY: ${{ needs.deploy.outputs.appsync_api_key }}
+          # A recipient verified in the sending account's SES sandbox. Unset (the
+          # default) leaves the emailed-order test on its honest "the email did
+          # not go out, the order did" branch; set it to exercise the send-
+          # succeeded branch.
+          E2E_SES_TEST_RECIPIENT: ${{ vars.E2E_SES_TEST_RECIPIENT }}
           TEST_OWNER_TOTP_SECRET: ${{ env.TEST_OWNER_TOTP_SECRET }}
           RUN_ACCOUNT_DELETION: "1"
           # In CI, fail the job if pre/post cleanup cannot run successfully.

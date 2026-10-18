@@ -34,6 +34,7 @@ AppSync
 appworx
 aria
 arn
+assertable
 asyncio
 auth
 authy
@@ -266,6 +267,7 @@ nocat
 nodate
 noindex
 noname
+noopener
 noout
 noreferrer
 nosniff
@@ -306,6 +308,8 @@ postalCode
 pre
 prefs
 prereqs
+presign
+presigns
 primaryText
 productId
 ProductName
