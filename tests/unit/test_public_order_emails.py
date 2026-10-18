@@ -362,6 +362,21 @@ class TestEdgeCases:
         assert data["totalAmount"] == "12.50"
         assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "12.50"}]
 
+    def test_a_non_numeric_amount_is_sent_as_stored_rather_than_failing_the_mail(
+        self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
+    ) -> None:
+        """A stored amount ``Decimal`` cannot read is sent as stored, not as a failure.
+
+        The email is best-effort: a row with a corrupt money value must still
+        produce a send rather than raise out of the template data.
+        """
+        order = {**ORDER, "lineItems": [], "totalAmount": "n/a"}
+
+        handle_send_order_emails(make_event(order=order), None)
+
+        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        assert data["totalAmount"] == "n/a"
+
     def test_missing_owner_account_id_skips_the_seller_email(
         self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
     ) -> None:

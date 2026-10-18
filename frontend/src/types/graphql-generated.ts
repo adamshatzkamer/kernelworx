@@ -1285,6 +1285,8 @@ export type GqlTransferProfileOwnershipInput = {
 /** An individual order within a unit report. */
 export type GqlUnitOrderDetail = {
   __typename?: 'UnitOrderDetail';
+  /** The buyer's email address, present only on orders that carry one (public order-page orders); null on authenticated and pre-feature orders. Unit reports carry it so the enable-time disclosure about buyer contact details appearing in reports and exports is true of the report itself. */
+  customerEmail?: Maybe<Scalars['String']['output']>;
   /** The order's customer name. */
   customerName: Scalars['String']['output'];
   /** The order's product lines. */
