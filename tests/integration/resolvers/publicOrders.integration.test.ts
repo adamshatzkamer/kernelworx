@@ -310,19 +310,42 @@ const OFFER_UNAVAILABLE = /not available|could not be placed|not found/i;
 /**
  * Read the AppSync error code off a thrown Apollo error.
  *
- * The three keys mirror `getErrorCode` in `frontend/src/lib/api-utils.ts`:
- * `errorCode` (the Lambda passthrough path), `code` (standard GraphQL) and
- * `errorType` (JS resolver `util.error(message, type)`).
+ * Apollo Client 4 surfaces a failed operation as `CombinedGraphQLErrors`, whose
+ * GraphQL errors live on `error.errors` (NOT the `graphQLErrors` field the 3.x
+ * `ApolloError` used). Each entry carries AppSync's own fields: `errorType` for
+ * `util.error(message, type)` and for the auth layer's `Unauthorized`, and
+ * `errorInfo.errorCode` for the structured code the Lambda passthrough path
+ * emits. `extensions.errorCode` / `extensions.code` are read as well, mirroring
+ * `getErrorCode` in `frontend/src/lib/api-utils.ts`, and the 3.x shape is kept
+ * as a fallback so the helper does not silently return `undefined` if the
+ * harness's Apollo version changes.
  */
+interface AppSyncGraphQLError {
+  message?: string;
+  errorType?: string;
+  errorInfo?: { errorCode?: string } | null;
+  extensions?: Record<string, unknown>;
+}
+
+function graphQLErrorsOf(error: unknown): AppSyncGraphQLError[] {
+  const wrapped = error as { errors?: AppSyncGraphQLError[]; graphQLErrors?: AppSyncGraphQLError[] };
+  return wrapped.errors ?? wrapped.graphQLErrors ?? [];
+}
+
 function errorCodeOf(error: unknown): string | undefined {
-  const graphQLErrors = (error as { graphQLErrors?: Array<{ extensions?: Record<string, unknown> }> })
-    .graphQLErrors;
-  const extensions = graphQLErrors?.[0]?.extensions;
-  if (!extensions) {
+  const first = graphQLErrorsOf(error)[0];
+  if (!first) {
     return undefined;
   }
+  const structured = first.errorInfo?.errorCode;
+  if (typeof structured === 'string') {
+    return structured;
+  }
+  if (typeof first.errorType === 'string') {
+    return first.errorType;
+  }
   for (const key of ['errorCode', 'code', 'errorType']) {
-    const value = extensions[key];
+    const value = first.extensions?.[key];
     if (typeof value === 'string') {
       return value;
     }
@@ -332,8 +355,7 @@ function errorCodeOf(error: unknown): string | undefined {
 
 /** The first GraphQL error's message, or the thrown error's own message. */
 function errorMessageOf(error: unknown): string {
-  const graphQLErrors = (error as { graphQLErrors?: Array<{ message?: string }> }).graphQLErrors;
-  return graphQLErrors?.[0]?.message ?? String(error);
+  return graphQLErrorsOf(error)[0]?.message ?? String(error);
 }
 
 /**
@@ -1094,11 +1116,25 @@ describe('Public Orders Integration Tests', () => {
         () => ownerClient.query({ query: PUBLIC_OFFER, variables: { campaignId: bareId(campaignId), token: shareToken } }),
         'Unauthorized'
       );
+      // The input must be COMPLETE: a missing NonNull field (e.g.
+      // acknowledgementsAccepted: Boolean!) is rejected by variable validation
+      // before auth resolution, which would mask the auth refusal behind a
+      // coercion error and prove nothing about directive exclusivity.
       await expectGraphQLError(
         () =>
           ownerClient.mutate({
             mutation: PUBLIC_CREATE_ORDER,
-            variables: { input: { campaignId: bareId(campaignId), token: shareToken } },
+            variables: {
+              input: {
+                campaignId: bareId(campaignId),
+                token: shareToken,
+                acknowledgementsAccepted: true,
+                firstName: 'Cognito',
+                lastName: 'Caller',
+                paymentMethod: plainMethod,
+                lineItems: [{ productId, quantity: 1 }],
+              },
+            },
           }),
         'Unauthorized'
       );
@@ -1165,7 +1201,10 @@ describe('Public Orders Integration Tests', () => {
       expect((row.customerEmail as { S: string }).S).toBe(buyerEmail);
       expect(row.customerFirstName).toEqual({ S: 'Ivy' });
       expect(row.customerLastName).toEqual({ S: 'Buyer' });
-      expect(row.customerPhone).toEqual({ S: '5551234567' });
+      // Stored E.164-normalized: validatePhone in
+      // tofu/application/appsync/js-resolvers/lib/validation.js returns
+      // '+1' + cleaned digits, so the raw input is not what lands in the row.
+      expect(row.customerPhone).toEqual({ S: '+15551234567' });
       expect(row.receiptToken).toBeTruthy();
       expect((row.receiptToken as { S: string }).S).toBe(publicReceiptToken);
 
@@ -1211,6 +1250,9 @@ describe('Public Orders Integration Tests', () => {
             campaignId,
             customerName: 'Authenticated Buyer',
             customerPhone: '5551234567',
+            // CreateOrderInput.orderDate is NonNull (AWSDateTime!): omitting it
+            // coerces to null and the operation is rejected before it runs.
+            orderDate: new Date().toISOString(),
             paymentMethod: plainMethod,
             lineItems: [{ productId, quantity: 1 }],
           },
@@ -1448,6 +1490,7 @@ describe('Public Orders Integration Tests', () => {
             campaignId,
             customerName: 'No Status Buyer',
             customerPhone: '5551234567',
+            orderDate: new Date().toISOString(),
             paymentMethod: plainMethod,
             lineItems: [{ productId, quantity: 1 }],
           },
