@@ -73,7 +73,8 @@ resource "aws_appsync_graphql_api" "main" {
 # order page a week after every deploy. The value is a literal rather than
 # timeadd(timestamp(), ...) on purpose - a computed expiry changes on every plan
 # and would rotate the key (and break every open tab holding the old bundle) on
-# each deploy. Renewal is a deliberate, manual edit plus frontend redeploy.
+# each deploy. Renewal is a deliberate, manual edit plus frontend redeploy — the
+# sequence and the accepted cutover gap are in docs/PUBLIC_API_KEY_RUNBOOK.md.
 # The service caps a key at 365 days from creation, so this date must stay
 # within a year of the deploy that creates the key.
 resource "aws_appsync_api_key" "public_orders" {
