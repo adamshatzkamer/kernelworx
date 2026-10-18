@@ -55,7 +55,7 @@ import re
 import urllib.error
 import urllib.request
 from collections.abc import Generator
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, expect
@@ -616,10 +616,17 @@ def test_buyer_order_with_email_lands_and_reopens_the_same_receipt(
 
     href = offer.receipt_link_href()
     assert href and "#" not in href, f"Receipt link must be a split-segment URL with no '#'; got: {href!r}"
+    # ``receiptUrl`` is SITE-RELATIVE by design (composePublicOrderReceipt in
+    # tofu/application/appsync/js-resolvers/lib/public_order.js: a JS resolver has
+    # no environment and the API-key request carries no usable Host, so the client
+    # resolves the path against its own origin; only the emailed copy is composed
+    # absolutely from SITE_URL). The browser follows a root-relative href, but
+    # Playwright's goto needs an absolute URL, hence the urljoin below.
+    assert href.startswith("/r/"), f"The success screen's receipt link must be a site-relative /r/ path; got: {href!r}"
     assert re.search(r"/r/[^/]+/[^/]+/[^/]+$", urlparse(href).path), (
         f"Receipt link must be /r/<campaign>/<suffix>/<token>; got: {href!r}"
     )
-    _po_state["receipt_url"] = href
+    _po_state["receipt_url"] = urljoin(base_url(), href)
 
     if recipient:
         assert "A confirmation email was sent" in copy, (
@@ -637,7 +644,7 @@ def test_buyer_order_with_email_lands_and_reopens_the_same_receipt(
         )
 
     receipt = PublicReceiptPage(buyer_page)
-    receipt.goto_receipt_url(href)
+    receipt.goto_receipt_url(_po_state["receipt_url"])
     assert not receipt.is_unavailable(), "The receipt URL must re-open the same receipt"
     assert receipt.line_item_count() >= 1, "The receipt must render its line items"
     assert receipt.status_chip_text() == "Awaiting payment confirmation", (

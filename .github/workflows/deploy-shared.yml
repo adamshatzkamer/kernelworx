@@ -99,7 +99,6 @@ jobs:
     outputs:
       user_pool_id: ${{ steps.tofu_outputs.outputs.user_pool_id }}
       client_id: ${{ steps.tofu_outputs.outputs.client_id }}
-      appsync_api_url: ${{ steps.tofu_outputs.outputs.appsync_api_url }}
       appsync_api_key: ${{ steps.tofu_outputs.outputs.appsync_api_key }}
     environment:
       name: ${{ inputs.environment }}
@@ -351,11 +350,6 @@ jobs:
           echo "site_url=$(tofu output -raw site_url)" >> $GITHUB_OUTPUT
           echo "static_assets_bucket=$(tofu output -raw static_assets_bucket)" >> $GITHUB_OUTPUT
           echo "cloudfront_distribution_id=$(tofu output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
-          # The smoke suite's scripted auth-boundary tests call AppSync directly,
-          # so the endpoint and the public-orders key are exported to that job
-          # below. The key is not a secret here: it grants only the @aws_api_key
-          # fields; the per-campaign share token in the URL is the authorization.
-          echo "appsync_api_url=$(tofu output -raw appsync_api_url)" >> $GITHUB_OUTPUT
           # The public-orders API key is a Terraform output threaded into the
           # frontend build environment as VITE_APPSYNC_API_KEY (it grants only
           # the @aws_api_key fields; the per-campaign share token in the URL is
@@ -636,7 +630,16 @@ jobs:
           # Scripted auth-boundary probes (test_smoke_auth_boundary.py) and the
           # through-site-origin API-key call (test_smoke_public_orders.py). The
           # key is not a secret here: it grants only the @aws_api_key fields.
-          TEST_APPSYNC_ENDPOINT: ${{ needs.deploy.outputs.appsync_api_url }}
+          # The endpoint is the site origin's /graphql, NOT the appsync_api_url
+          # output: that URL contains the AWS region, which is a configured
+          # repository secret, and Actions refuses to set any step or job output
+          # whose value contains a secret (deploy run 39112162724: "Skip output
+          # 'appsync_api_url' since it may contain secret"), which left the
+          # variable empty and skipped both probes. Going through the site origin
+          # is also the stronger assertion - it proves the distribution forwards
+          # the key-only request and that AppSync still refuses the key on
+          # Cognito-only fields.
+          TEST_APPSYNC_ENDPOINT: ${{ inputs.e2e-base-url }}/graphql
           TEST_APPSYNC_API_KEY: ${{ needs.deploy.outputs.appsync_api_key }}
           # A recipient verified in the sending account's SES sandbox. Unset (the
           # default) leaves the emailed-order test on its honest "the email did

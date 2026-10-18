@@ -265,6 +265,11 @@ def test_public_api_key_cannot_reach_cognito_only_fields(query: str, field: str)
     what keeps the public key out of every non-public field (measured in the
     KW-PUBLIC-ORDERS-SPIKE-1 spike, and pinned at the schema level by
     ``tests/unit/test_public_api_key_surface.py``).
+
+    The endpoint is whatever ``TEST_APPSYNC_ENDPOINT`` names: the direct AppSync
+    URL on an ephemeral run (``scripts/ephemeral-env.sh`` exports it), the site
+    origin's ``/graphql`` on a deploy smoke run — the distribution forwards the
+    key-only request, so the refusal is the same assertion one hop further out.
     """
     endpoint = os.environ.get("TEST_APPSYNC_ENDPOINT", "")
     api_key = os.environ.get("TEST_APPSYNC_API_KEY", "")
