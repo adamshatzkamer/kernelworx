@@ -237,12 +237,14 @@ describe('CampaignSettingsPage public orders section', () => {
     await waitFor(() => {
       expect(screen.getByText('Public Orders')).toBeInTheDocument();
     });
-    const enableButton = screen.getByRole('button', { name: 'Enable' });
+    // The section body renders only once the settings query lands, so the
+    // action and the method list are awaited, not assumed.
+    const enableButton = await screen.findByRole('button', { name: 'Enable' });
     expect(enableButton).toBeDisabled();
 
-    await userEvent.click(screen.getByRole('checkbox', { name: PAYMENT_ACK_TEXT }));
-    await userEvent.click(screen.getByRole('checkbox', { name: DISCLOSURE_ACK_TEXT }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Venmo' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: PAYMENT_ACK_TEXT }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: DISCLOSURE_ACK_TEXT }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Venmo' }));
     expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
 
     await userEvent.click(screen.getByRole('button', { name: 'Enable' }));
