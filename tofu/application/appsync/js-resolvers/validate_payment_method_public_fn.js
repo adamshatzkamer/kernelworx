@@ -104,9 +104,5 @@ export function response(ctx) {
         return null;
     }
 
-    if (ctx.stash) {
-        ctx.stash.sellerEmail = typeof (account && account.email) === 'string' ? account.email : '';
-    }
-
     return ctx.prev ? ctx.prev.result : null;
 }

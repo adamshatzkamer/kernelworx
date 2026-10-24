@@ -896,7 +896,7 @@ class TestDeleteQRByKey:
         error_response = {"Error": {"Code": "NoSuchKey", "Message": "Key does not exist"}}
         mock_s3.delete_object.side_effect = ClientError(error_response, "DeleteObject")
 
-        monkeypatch.setattr(payment_methods, "s3_client", mock_s3)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
 
         # Should not raise - NoSuchKey is silently ignored for idempotent delete
         payment_methods.delete_qr_by_key(s3_key)
@@ -910,7 +910,7 @@ class TestDeleteQRByKey:
         error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}
         mock_s3.delete_object.side_effect = ClientError(error_response, "DeleteObject")
 
-        monkeypatch.setattr(payment_methods, "s3_client", mock_s3)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.delete_qr_by_key(s3_key)
@@ -924,7 +924,7 @@ class TestDeleteQRByKey:
         mock_s3 = MagicMock()
         mock_s3.delete_object.side_effect = Exception("Unexpected error")
 
-        monkeypatch.setattr(payment_methods, "s3_client", mock_s3)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.delete_qr_by_key(s3_key)
@@ -1061,7 +1061,7 @@ class TestDeleteAllUserQRCodes:
         mock_s3.get_paginator.return_value = mock_paginator
         mock_logger = MagicMock()
 
-        monkeypatch.setattr(payment_methods, "s3_client", mock_s3)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
 
         deleted = payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
         assert deleted == 2
@@ -1075,7 +1075,7 @@ class TestDeleteAllUserQRCodes:
         mock_s3.get_paginator.side_effect = Exception("S3 error")
         mock_logger = MagicMock()
 
-        monkeypatch.setattr(payment_methods, "s3_client", mock_s3)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
@@ -1101,8 +1101,8 @@ class TestDeleteAllUserQRCodes:
         mock_s3.get_paginator.return_value = mock_paginator
         mock_logger = MagicMock()
 
-        with patch.object(payment_methods, "get_s3_client", return_value=mock_s3):
-            deleted = payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
+        deleted = payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
 
         assert deleted == 1
         assert mock_paginator.paginate.call_count == 2
@@ -1121,9 +1121,9 @@ class TestDeleteAllUserQRCodes:
         mock_s3.get_paginator.side_effect = throttled
         mock_logger = MagicMock()
 
-        with patch.object(payment_methods, "get_s3_client", return_value=mock_s3):
-            with pytest.raises(AppError) as exc_info:
-                payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
+        with pytest.raises(AppError) as exc_info:
+            payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
 
         assert exc_info.value.error_code == ErrorCode.INTERNAL_ERROR
         assert mock_s3.get_paginator.call_count == 3
@@ -1141,9 +1141,9 @@ class TestDeleteAllUserQRCodes:
         mock_s3.get_paginator.side_effect = denied
         mock_logger = MagicMock()
 
-        with patch.object(payment_methods, "get_s3_client", return_value=mock_s3):
-            with pytest.raises(AppError):
-                payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
+        monkeypatch.setattr(payment_methods, "_s3_client_override", mock_s3)
+        with pytest.raises(AppError):
+            payment_methods.delete_all_user_qr_codes(sample_account_id, logger=mock_logger)
 
         mock_s3.get_paginator.assert_called_once()
         sleep_mock.assert_not_called()
@@ -1334,7 +1334,7 @@ class TestErrorHandling:
             {"Error": {"Code": "InternalServerError", "Message": "Test error"}}, "GeneratePresignedUrl"
         )
 
-        payment_methods.s3_client = mock_s3
+        payment_methods._s3_client_override = mock_s3
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.generate_presigned_get_url(
@@ -1342,7 +1342,7 @@ class TestErrorHandling:
             )
         assert exc_info.value.error_code == ErrorCode.INTERNAL_ERROR
 
-        payment_methods.s3_client = None
+        payment_methods._s3_client_override = None
 
     def test_get_payment_methods_account_not_found(
         self, dynamodb_tables: Dict[str, Any], sample_account_id: str
@@ -1403,14 +1403,14 @@ class TestErrorHandling:
             {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "DeleteObject"
         )
 
-        payment_methods.s3_client = mock_s3
+        payment_methods._s3_client_override = mock_s3
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.delete_qr_from_s3(sample_account_id, "Venmo")
         assert exc_info.value.error_code == ErrorCode.INTERNAL_ERROR
         assert "failed to delete qr code" in exc_info.value.message.lower()
 
-        payment_methods.s3_client = None
+        payment_methods._s3_client_override = None
 
     def test_update_payment_method_empty_new_name(
         self, dynamodb_tables: Dict[str, Any], sample_account: Dict[str, Any], sample_account_id: str
@@ -1536,7 +1536,7 @@ class TestErrorHandling:
             {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "DeleteObject"
         )
 
-        payment_methods.s3_client = mock_s3
+        payment_methods._s3_client_override = mock_s3
 
         # This should still succeed (with a warning logged) and delete the payment method
         payment_methods.delete_payment_method(sample_account_id, "Venmo")
@@ -1545,7 +1545,7 @@ class TestErrorHandling:
         methods = payment_methods.get_payment_methods(sample_account_id)
         assert len(methods) == 0
 
-        payment_methods.s3_client = None
+        payment_methods._s3_client_override = None
 
     def test_delete_qr_outer_exception(self, s3_bucket: Any, sample_account_id: str) -> None:
         """Test delete_qr_from_s3 handles outer exception path."""
@@ -1554,13 +1554,13 @@ class TestErrorHandling:
         # Raise an exception during S3 deletion or before entering the loop
         mock_s3.delete_object.side_effect = Exception("Unexpected error")
 
-        payment_methods.s3_client = mock_s3
+        payment_methods._s3_client_override = mock_s3
 
         with pytest.raises(AppError) as exc_info:
             payment_methods.delete_qr_from_s3(sample_account_id, "Venmo")
         assert exc_info.value.error_code == ErrorCode.INTERNAL_ERROR
 
-        payment_methods.s3_client = None
+        payment_methods._s3_client_override = None
 
     def test_update_payment_method_name_too_long(
         self, dynamodb_tables: Dict[str, Any], sample_account: Dict[str, Any], sample_account_id: str

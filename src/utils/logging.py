@@ -184,3 +184,26 @@ def mask_email(email: Optional[str]) -> str:
     if len(local) == 1:
         return f"***@{domain}"
     return f"{local[0]}***@{domain}"
+
+
+def redact_secrets(exc: Exception, secret: Optional[str]) -> Exception:
+    """Strip a secret from an unexpected exception's message, in place.
+
+    The generic error handler logs ``error=str(e)``. A library that echoes a
+    request argument (a validation error, a service error carrying the request)
+    would therefore put a capability token in the log, so the scrub happens at
+    this boundary where the secret is known exactly and can be replaced
+    literally rather than pattern-matched. A message that never carried it is
+    left alone.
+
+    Args:
+        exc: The exception to scrub
+        secret: The secret string to redact, or None
+
+    Returns:
+        The same exception instance with its message redacted
+    """
+    text = str(exc)
+    if isinstance(secret, str) and secret and secret in text:
+        exc.args = (text.replace(secret, "[redacted]"),)
+    return exc

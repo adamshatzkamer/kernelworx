@@ -26,8 +26,9 @@ need them.
 
 Every negative branch — unknown order, an authenticated order with no
 ``receiptToken`` attribute, a mismatched token, a malformed or legacy id, an
-embedded-campaign mismatch — raises the identical ``NOT_FOUND`` with one
-message, so probing cannot enumerate which receipt links exist.
+embedded-campaign mismatch, or an order older than the receipt TTL — raises the
+identical ``NOT_FOUND`` with one message, so probing cannot enumerate which
+receipt links exist.
 
 Logging hygiene is a contract (§9): the receipt token is a durable capability
 with no expiry, so it never enters a log line, and neither does the buyer's
@@ -36,20 +37,23 @@ offer path scrubs the share token, because the decorator's generic line logs
 ``error=str(e)``.
 """
 
-import hmac
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 try:  # pragma: no cover
+    from utils.appsync_types import as_float
     from utils.dynamodb import tables
     from utils.errors import AppError, ErrorCode
     from utils.ids import ensure_campaign_id, strip_prefix
-    from utils.logging import get_logger
+    from utils.logging import get_logger, redact_secrets
+    from utils.tokens import constant_time_token_match
 except ModuleNotFoundError:  # pragma: no cover
+    from ..utils.appsync_types import as_float
     from ..utils.dynamodb import tables
     from ..utils.errors import AppError, ErrorCode
     from ..utils.ids import ensure_campaign_id, strip_prefix
-    from ..utils.logging import get_logger
+    from ..utils.logging import get_logger, redact_secrets
+    from ..utils.tokens import constant_time_token_match
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..utils.handlers import lambda_handler as with_error_handling
@@ -65,6 +69,12 @@ RECEIPT_UNAVAILABLE_MESSAGE = "Receipt not available"
 
 # The field name this handler answers on the shared public-orders Lambda.
 RECEIPT_FIELD = "publicGetOrderReceipt"
+
+# Receipt capability TTL: orders older than this many days are not accessible
+# via the public receipt link. Derived from the order's createdAt (stored as
+# orderDate ISO string) to avoid a schema migration. A leaked /r/ link grants
+# read access only for this window; buyers with recent orders are unaffected.
+RECEIPT_TTL_DAYS = 365
 
 # Order ids are ORDER#<campaignId>#<suffix>; anything else (a legacy two-part
 # id, a tampered segment) is refused before any datastore call.
@@ -117,9 +127,7 @@ def _token_matches(order: Dict[str, Any], submitted: Any) -> bool:
     NOT_FOUND rather than disclosing that the order exists.
     """
     stored = order.get("receiptToken")
-    if not isinstance(stored, str) or not stored or not isinstance(submitted, str) or not submitted:
-        return False
-    return hmac.compare_digest(submitted.encode("utf-8"), stored.encode("utf-8"))
+    return constant_time_token_match(stored, submitted)
 
 
 def _embedded_campaign_matches(order: Dict[str, Any], campaign_id: str) -> bool:
@@ -138,14 +146,26 @@ def _embedded_campaign_matches(order: Dict[str, Any], campaign_id: str) -> bool:
     return bool(ensure_campaign_id(parts[1]) == campaign_id)
 
 
-def _as_float(value: Any) -> Optional[float]:
-    """Coerce a stored DynamoDB number to float, or None when it is not one."""
-    if not isinstance(value, (int, float, str, Decimal)):
-        return None
+def _order_within_ttl(order: Dict[str, Any]) -> bool:
+    """Check if the order is within the receipt TTL window.
+
+    The order's createdAt is stored as orderDate (ISO 8601 string). Orders
+    older than RECEIPT_TTL_DAYS return False and are treated as unavailable
+    (NOT_FOUND), so a leaked capability link expires implicitly without a
+    schema migration.
+    """
+    order_date_str = order.get("orderDate")
+    if not isinstance(order_date_str, str) or not order_date_str:
+        # Missing or malformed date: treat as expired (fail closed)
+        return False
     try:
-        return float(value)
+        order_dt = datetime.fromisoformat(order_date_str.replace("Z", "+00:00"))
     except ValueError:
-        return None
+        # Unparseable date: treat as expired (fail closed)
+        return False
+    now = datetime.now(timezone.utc)
+    delta = now - order_dt
+    return delta.days < RECEIPT_TTL_DAYS
 
 
 def _line_items(order: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -161,9 +181,9 @@ def _line_items(order: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
         product_id = item.get("productId")
         name = item.get("productName")
-        quantity = _as_float(item.get("quantity"))
-        price = _as_float(item.get("pricePerUnit"))
-        subtotal = _as_float(item.get("subtotal"))
+        quantity = as_float(item.get("quantity"))
+        price = as_float(item.get("pricePerUnit"))
+        subtotal = as_float(item.get("subtotal"))
         if not isinstance(product_id, str) or quantity is None or price is None or subtotal is None:
             continue
         shaped.append(
@@ -202,7 +222,11 @@ def _build_receipt(event: Dict[str, Any]) -> Dict[str, Any]:
     campaign_id, order_id = _order_key(arguments)
     order = _load_order(campaign_id, order_id)
 
-    if not _token_matches(order, arguments.get("receiptToken")) or not _embedded_campaign_matches(order, campaign_id):
+    if not _token_matches(order, arguments.get("receiptToken")):
+        raise _receipt_unavailable()
+    if not _embedded_campaign_matches(order, campaign_id):
+        raise _receipt_unavailable()
+    if not _order_within_ttl(order):
         raise _receipt_unavailable()
 
     logger.info("Public order receipt served", order_id=order_id, line_items=len(order.get("lineItems") or []))
@@ -212,25 +236,12 @@ def _build_receipt(event: Dict[str, Any]) -> Dict[str, Any]:
         "orderId": order_id,
         "orderDate": _text(order.get("orderDate")),
         "lineItems": _line_items(order),
-        "totalAmount": _as_float(order.get("totalAmount")) or 0.0,
+        "totalAmount": as_float(order.get("totalAmount")) or 0.0,
         "paymentMethodName": _text(order.get("paymentMethod")),
         "status": _status(order),
         "buyerFirstName": _text(order.get("customerFirstName")),
         "buyerLastName": _text(order.get("customerLastName")),
     }
-
-
-def _redact_secrets(exc: Exception, secret: Optional[str]) -> Exception:
-    """Strip the receipt token from an unexpected exception's message, in place.
-
-    The decorator's generic path logs ``error=str(e)``. A library echoing a
-    request argument would therefore put a durable capability in the log, so the
-    scrub happens at this boundary where the secret is known exactly.
-    """
-    text = str(exc)
-    if isinstance(secret, str) and secret and secret in text:
-        exc.args = (text.replace(secret, "[redacted]"),)
-    return exc
 
 
 def run_receipt(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -241,7 +252,7 @@ def run_receipt(event: Dict[str, Any]) -> Dict[str, Any]:
     except AppError:
         raise
     except Exception as exc:
-        raise _redact_secrets(exc, token if isinstance(token, str) else None) from None
+        raise redact_secrets(exc, token if isinstance(token, str) else None) from None
 
 
 @with_error_handling(error_message=RECEIPT_UNAVAILABLE_MESSAGE)

@@ -32,10 +32,8 @@ campaign id cannot tell "never enabled" from "bad token". The share token is
 scrubbed from any unexpected-exception message before it can reach a log line.
 """
 
-import hmac
 import logging
 from contextlib import contextmanager
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple, cast
 
 from boto3.dynamodb.conditions import Key
@@ -44,18 +42,22 @@ try:  # pragma: no cover
     from handlers.public_order_emails import SEND_ORDER_EMAILS_OPERATION, handle_send_order_emails
     from handlers.public_orders_receipt import RECEIPT_FIELD, handle_receipt
     from utils import payment_methods as _payment_methods
+    from utils.appsync_types import as_float
     from utils.dynamodb import tables
     from utils.errors import AppError, ErrorCode
     from utils.ids import ensure_campaign_id, ensure_catalog_id, ensure_profile_id, strip_prefix
-    from utils.logging import get_logger
+    from utils.logging import get_logger, redact_secrets
     from utils.payment_methods import RESERVED_NAMES, generate_presigned_get_url
+    from utils.tokens import constant_time_token_match
 except ModuleNotFoundError:  # pragma: no cover
     from ..utils import payment_methods as _payment_methods
+    from ..utils.appsync_types import as_float
     from ..utils.dynamodb import tables
     from ..utils.errors import AppError, ErrorCode
     from ..utils.ids import ensure_campaign_id, ensure_catalog_id, ensure_profile_id, strip_prefix
-    from ..utils.logging import get_logger
+    from ..utils.logging import get_logger, redact_secrets
     from ..utils.payment_methods import RESERVED_NAMES, generate_presigned_get_url
+    from ..utils.tokens import constant_time_token_match
     from .public_order_emails import SEND_ORDER_EMAILS_OPERATION, handle_send_order_emails
     from .public_orders_receipt import RECEIPT_FIELD, handle_receipt
 
@@ -223,9 +225,7 @@ def _token_matches(blob: Dict[str, Any], token: Any) -> bool:
     if blob.get("enabled") is not True:
         return False
     stored = blob.get("token")
-    if not isinstance(stored, str) or not stored or not isinstance(token, str) or not token:
-        return False
-    return hmac.compare_digest(token.encode("utf-8"), stored.encode("utf-8"))
+    return constant_time_token_match(stored, token)
 
 
 # ---------------------------------------------------------------------------
@@ -262,29 +262,15 @@ def _load_catalog(campaign: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _as_float(value: Any) -> Optional[float]:
-    """Coerce a stored DynamoDB number (Decimal, float, or numeric string) to float.
-
-    Returns None for anything that is not a number rather than raising, so one
-    malformed stored value cannot fail the whole offer.
-    """
-    if not isinstance(value, (int, float, str, Decimal)):
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
 def _as_int(value: Any) -> Optional[int]:
     """Coerce a stored number to int, or None when it is not a number."""
-    number = _as_float(value)
+    number = as_float(value)
     return None if number is None else int(number)
 
 
 def _sort_key(product: Dict[str, Any]) -> Tuple[int, float]:
     """Catalog order; a product without a usable ``sortOrder`` sorts last."""
-    order = _as_float(product.get("sortOrder"))
+    order = as_float(product.get("sortOrder"))
     return (0, order) if order is not None else (1, 0.0)
 
 
@@ -298,7 +284,7 @@ def _public_product(product: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     name = product.get("productName")
     if not isinstance(product_id, str) or not product_id or not isinstance(name, str):
         return None
-    price = _as_float(product.get("price"))
+    price = as_float(product.get("price"))
     if price is None:
         return None
 
@@ -509,21 +495,6 @@ def _build_offer(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _redact_secrets(exc: Exception, secret: Optional[str]) -> Exception:
-    """Strip the share token from an unexpected exception's message, in place.
-
-    The decorator's generic path logs ``error=str(e)``. A library that echoes a
-    request argument — a validation error, a service error carrying the request —
-    would therefore put the capability token in the log, so the scrub happens at
-    this boundary where the secret is known exactly and can be replaced literally
-    rather than pattern-matched. A message that never carried it is left alone.
-    """
-    text = str(exc)
-    if isinstance(secret, str) and secret and secret in text:
-        exc.args = (text.replace(secret, "[redacted]"),)
-    return exc
-
-
 def _run_guarded(event: Dict[str, Any]) -> Dict[str, Any]:
     """Run the offer read with the share token scrubbed from unexpected errors."""
     token = (event.get("arguments") or {}).get("token")
@@ -532,7 +503,7 @@ def _run_guarded(event: Dict[str, Any]) -> Dict[str, Any]:
     except AppError:
         raise
     except Exception as exc:
-        raise _redact_secrets(exc, token if isinstance(token, str) else None) from None
+        raise redact_secrets(exc, token if isinstance(token, str) else None) from None
 
 
 @with_error_handling(error_message=OFFER_UNAVAILABLE_MESSAGE)
