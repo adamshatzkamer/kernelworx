@@ -17,15 +17,34 @@ interface PublicSettingsActionsProps {
   saving: boolean;
   /** Whether the enable prerequisites (acks + at least one method) are met. */
   canEnable?: boolean;
+  /** Whether the save prerequisites are met. Defaults to true. */
+  canSave?: boolean;
 }
 
 type SettingsAction = 'save' | 'enable' | 'disable';
 
-/** The save/enable/disable actions share one disable rule: pending, or already in the target state. */
-const actionDisabled = (action: SettingsAction, saving: boolean, enabled: boolean, canEnable: boolean): boolean =>
-  saving || (action === 'enable' ? enabled || !canEnable : action === 'disable' ? !enabled : !enabled);
+/** The target-state or prerequisite check for save/enable/disable. */
+const isActionBlocked = (action: SettingsAction, enabled: boolean, canEnable: boolean, canSave: boolean): boolean => {
+  switch (action) {
+    case 'enable':
+      return enabled || !canEnable;
+    case 'disable':
+      return !enabled;
+    case 'save':
+      return !canSave;
+  }
+};
 
-const rotateDisabled = (saving: boolean, enabled: boolean): boolean => !enabled || saving;
+/** The save/enable/disable actions share disable rules: in flight, or unmet prerequisites / target state. */
+const actionDisabled = (
+  action: SettingsAction,
+  saving: boolean,
+  enabled: boolean,
+  canEnable: boolean,
+  canSave: boolean,
+): boolean => saving || isActionBlocked(action, enabled, canEnable, canSave);
+
+const rotateDisabled = (saving: boolean): boolean => saving;
 
 const actionLabel = (saving: boolean, label: string): string => (saving ? 'Saving...' : label);
 
@@ -37,6 +56,7 @@ export const PublicSettingsActions: React.FC<PublicSettingsActionsProps> = ({
   onSave,
   saving,
   canEnable = true,
+  canSave = true,
 }) => {
   return (
     <Box sx={{ mt: 3 }}>
@@ -44,20 +64,20 @@ export const PublicSettingsActions: React.FC<PublicSettingsActionsProps> = ({
         Actions
       </Typography>
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        <Button variant="contained" onClick={onSave} disabled={actionDisabled('save', saving, enabled, canEnable)}>
+        <Button variant="contained" onClick={onSave} disabled={actionDisabled('save', saving, enabled, canEnable, canSave)}>
           {actionLabel(saving, 'Save')}
         </Button>
-        <Button variant="contained" onClick={onEnable} disabled={actionDisabled('enable', saving, enabled, canEnable)}>
+        <Button variant="contained" onClick={onEnable} disabled={actionDisabled('enable', saving, enabled, canEnable, canSave)}>
           {actionLabel(saving, 'Enable')}
         </Button>
         <Button
           variant="contained"
           onClick={onDisable}
-          disabled={actionDisabled('disable', saving, enabled, canEnable)}
+          disabled={actionDisabled('disable', saving, enabled, canEnable, canSave)}
         >
           {actionLabel(saving, 'Disable')}
         </Button>
-        <Button variant="outlined" onClick={onRotate} disabled={rotateDisabled(saving, enabled)}>
+        <Button variant="outlined" onClick={onRotate} disabled={rotateDisabled(saving)}>
           Rotate Share Token
         </Button>
       </Stack>

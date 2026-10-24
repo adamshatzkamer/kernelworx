@@ -95,6 +95,7 @@ describe('useCampaignPublicOrderSettings', () => {
     expect(result.current.updating).toBe(false);
     await waitFor(() => {
       expect(result.current.settings).not.toBeNull();
+      expect(result.current.availablePaymentMethods).toEqual(['Zelle', 'Cash', 'Check']);
     });
 
     expect(result.current.settings).toEqual({
@@ -529,9 +530,18 @@ describe('useCampaignPublicOrderSettings', () => {
     });
 
     expect(result.current.updating).toBe(false);
-    expect(console.error).toHaveBeenCalled();
+    expect(result.current.mutationError).toEqual({
+      operation: 'save',
+      message: 'boom',
+      error: expect.any(Error),
+    });
     // The stored view survives the failed mutation.
     expect(result.current.settings?.token).toBe('tok-1');
+
+    act(() => {
+      result.current.clearMutationError();
+    });
+    expect(result.current.mutationError).toBeNull();
   });
 
   it('leaves state untouched when the mutation returns no blob', async () => {
@@ -586,5 +596,124 @@ describe('useCampaignPublicOrderSettings', () => {
       await result.current.enable();
     });
     expect(result.current.updating).toBe(false);
+  });
+
+  it('SEC-7: gates pre-checks on fetched.ackVersion === PUBLIC_ORDER_ACK_VERSION (starts unchecked when outdated)', async () => {
+    const outdatedSettings = makeSettings({
+      acknowledgedAt: '2024-01-01T00:00:00.000Z',
+      ackVersion: 0, // Outdated version (< PUBLIC_ORDER_ACK_VERSION)
+    });
+    const mocks = [campaignMock, settingsMock(outdatedSettings), paymentMethodsMock()];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+
+    // Checkboxes must start unchecked when ackVersion is outdated, preventing auto-consent
+    expect(result.current.paymentAckAccepted).toBe(false);
+    expect(result.current.disclosureAckAccepted).toBe(false);
+    expect(result.current.acknowledgementsAccepted).toBe(false);
+  });
+
+  it('FUNC-2: captures rotation failure in mutationError', async () => {
+    const mocks = [
+      campaignMock,
+      settingsMock(),
+      paymentMethodsMock(),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: ['Cash'],
+              acknowledgementsAccepted: true,
+              rotateToken: true,
+            },
+          },
+        },
+        error: new Error('Network error during rotation'),
+      },
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+
+    await act(async () => {
+      await result.current.rotateToken();
+    });
+
+    expect(result.current.updating).toBe(false);
+    expect(result.current.mutationError).toEqual({
+      operation: 'rotate',
+      message: 'Network error during rotation',
+      error: expect.any(Error),
+    });
+  });
+
+  it('FUNC-6: preserves unsaved draft state across query updates when dirty', async () => {
+    const mocks = [
+      campaignMock,
+      settingsMock(),
+      paymentMethodsMock(),
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.settings).not.toBeNull();
+    });
+
+    // Edit the draft
+    act(() => {
+      result.current.setField('allowedPaymentMethods', ['Cash', 'Check', 'Venmo']);
+    });
+    expect(result.current.dirty).toBe(true);
+
+    // Draft retains the user's edits
+    expect(result.current.draft.allowedPaymentMethods).toEqual(['Cash', 'Check', 'Venmo']);
+    // Stored settings remain the original server state
+    expect(result.current.settings?.allowedPaymentMethods).toEqual(['Cash']);
+  });
+
+  it('FUNC-10a: exposes queryError and isNotFound status on query failure', async () => {
+    const notFoundError = new Error('Resource not found');
+    (notFoundError as unknown as { graphQLErrors: Array<{ extensions: { errorCode: string } }> }).graphQLErrors = [
+      { extensions: { errorCode: 'NOT_FOUND' } },
+    ];
+    const mocks = [
+      campaignMock,
+      {
+        request: {
+          query: GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: { campaignId: CAMPAIGN_ID },
+        },
+        error: notFoundError,
+      },
+      paymentMethodsMock(),
+    ];
+    const { result } = renderHook(
+      () => useCampaignPublicOrderSettings({ campaignId: CAMPAIGN_ID_RAW }),
+      { wrapper: makeWrapper(mocks) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.queryError).toBeDefined();
+    expect(result.current.isNotFound).toBe(true);
   });
 });
