@@ -43,13 +43,15 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 try:  # pragma: no cover
     from utils.dynamodb import tables
     from utils.errors import AppError, ErrorCode
-    from utils.ids import ensure_campaign_id, strip_prefix
+    from utils.ids import ensure_campaign_id
     from utils.logging import get_logger
+    from utils.order_keys import build_order_id, parse_order_id
 except ModuleNotFoundError:  # pragma: no cover
     from ..utils.dynamodb import tables
     from ..utils.errors import AppError, ErrorCode
-    from ..utils.ids import ensure_campaign_id, strip_prefix
+    from ..utils.ids import ensure_campaign_id
     from ..utils.logging import get_logger
+    from ..utils.order_keys import build_order_id, parse_order_id
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..utils.handlers import lambda_handler as with_error_handling
@@ -66,9 +68,9 @@ RECEIPT_UNAVAILABLE_MESSAGE = "Receipt not available"
 # The field name this handler answers on the shared public-orders Lambda.
 RECEIPT_FIELD = "publicGetOrderReceipt"
 
-# Order ids are ORDER#<campaignId>#<suffix>; anything else (a legacy two-part
-# id, a tampered segment) is refused before any datastore call.
-_ORDER_ID_PARTS = 3
+# The ORDER#<campaignId>#<suffix> grammar lives in ``utils.order_keys``; anything
+# else (a legacy two-part id, a tampered segment) is refused before any datastore
+# call.
 
 
 def _receipt_unavailable() -> AppError:
@@ -85,16 +87,12 @@ def _order_key(arguments: Dict[str, Any]) -> Tuple[str, str]:
     the same NOT_FOUND as a wrong token.
     """
     campaign_id = ensure_campaign_id(arguments.get("campaignId"))
-    order_suffix = arguments.get("orderSuffix")
+    order_id = build_order_id(campaign_id, arguments.get("orderSuffix"))
 
-    if not campaign_id or not isinstance(order_suffix, str) or not order_suffix or "#" in order_suffix:
+    if not campaign_id or not order_id:
         raise _receipt_unavailable()
 
-    campaign_bare = strip_prefix(campaign_id)
-    if not campaign_bare or "#" in campaign_bare:
-        raise _receipt_unavailable()
-
-    return campaign_id, f"ORDER#{campaign_bare}#{order_suffix}"
+    return campaign_id, order_id
 
 
 def _load_order(campaign_id: str, order_id: str) -> Dict[str, Any]:
@@ -130,12 +128,10 @@ def _embedded_campaign_matches(order: Dict[str, Any], campaign_id: str) -> bool:
     disagrees with its key (a hand-edited or partially migrated item).
     """
     order_id = order.get("orderId")
-    if not isinstance(order_id, str):
+    embedded = parse_order_id(order_id)
+    if embedded is None:
         return False
-    parts = order_id.split("#")
-    if len(parts) != _ORDER_ID_PARTS or not parts[1] or not parts[2]:
-        return False
-    return bool(ensure_campaign_id(parts[1]) == campaign_id)
+    return bool(ensure_campaign_id(embedded[0]) == campaign_id)
 
 
 def _as_float(value: Any) -> Optional[float]:

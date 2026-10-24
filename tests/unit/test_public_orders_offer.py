@@ -14,6 +14,8 @@ payloads.
 
 from __future__ import annotations
 
+import logging
+from decimal import Decimal
 from typing import Any, Dict
 from unittest.mock import patch
 
@@ -38,7 +40,6 @@ from src.handlers.public_orders_offer import (
     _signed_qr_url,
     _sort_key,
     _stored_methods,
-    _suppress_logged_value,
     _token_matches,
     handler,
 )
@@ -105,6 +106,26 @@ class TestLoadCampaign:
         campaigns_table.put_item(Item={"profileId": "PROFILE#p2", "campaignId": CAMPAIGN_ID})
         with pytest.raises(AppError):
             offer._load_campaign(CAMPAIGN_ID, offer.get_logger(__name__))
+
+    def test_zero_projection_logs_info_not_warning(self, campaigns_table: Any, caplog: pytest.LogCaptureFixture) -> None:
+        # A stale share link or an anonymous token probe is the normal zero-hit
+        # case: it must not raise the log level.
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(AppError):
+                offer._load_campaign(CAMPAIGN_ID, offer.get_logger(__name__))
+        hits = [record for record in caplog.records if "campaignId-index" in record.message]
+        assert len(hits) == 1
+        assert hits[0].levelno == logging.INFO
+
+    def test_ambiguous_projection_logs_warning(self, campaigns_table: Any, caplog: pytest.LogCaptureFixture) -> None:
+        campaigns_table.put_item(Item=_campaign_item(_settings()))
+        campaigns_table.put_item(Item={"profileId": "PROFILE#p2", "campaignId": CAMPAIGN_ID})
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(AppError):
+                offer._load_campaign(CAMPAIGN_ID, offer.get_logger(__name__))
+        hits = [record for record in caplog.records if "campaignId-index" in record.message]
+        assert len(hits) == 1
+        assert hits[0].levelno == logging.WARNING
 
     def test_campaign_projection_missing_profile_id(self) -> None:
         # The GSI can project a row whose profileId is missing/empty (a corrupt
@@ -227,6 +248,33 @@ class TestCoercionHelpers:
         assert _as_float("nope") is None
         assert _as_float([1]) is None
 
+    def test_as_float_rejects_non_finite_values(self) -> None:
+        """NaN and the infinities are numbers to ``float()`` but not money.
+
+        A stored ``Decimal("NaN")`` price would survive every downstream check
+        and reach the buyer's offer as garbage, so it is rejected like any other
+        malformed stored value.
+        """
+        for value in (
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            "nan",
+            "inf",
+            "Infinity",
+        ):
+            assert _as_float(value) is None, value
+        assert _as_int(Decimal("NaN")) is None
+        assert _sort_key({"sortOrder": Decimal("NaN")}) == (1, 0.0)
+
+    def test_public_product_drops_a_non_finite_price(self) -> None:
+        assert _public_product({"productId": "p", "productName": "N", "price": Decimal("NaN")}) is None
+        assert _public_product({"productId": "p", "productName": "N", "price": Decimal("Infinity")}) is None
+
     def test_as_int(self) -> None:
         assert _as_int(None) is None
         assert _as_int(7) == 7
@@ -279,6 +327,29 @@ class TestPaymentMethods:
         stored = _stored_methods(ACCOUNT_ID)
         assert "venmo" in stored and "cash" in stored and 7 not in stored
 
+    def test_stored_methods_accepts_either_account_id_spelling(self, accounts_table: Any) -> None:
+        """The accounts partition key is always ``ACCOUNT#<id>``.
+
+        A profile row's ``ownerAccountId`` can carry the bare legacy spelling; a
+        verbatim read for it returns nothing and silently empties the offer's
+        payment methods, so both spellings must resolve to the same row.
+        """
+        accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
+        assert "venmo" in _stored_methods("sub1")
+        assert "venmo" in _stored_methods(ACCOUNT_ID)
+
+    def test_public_payment_methods_resolves_a_bare_owner_account_id(self, accounts_table: Any) -> None:
+        accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
+        blob = {"allowedPaymentMethods": ["venmo"]}
+        result = _public_payment_methods({"ownerAccountId": "sub1"}, blob, offer.get_logger(__name__))
+        assert [method["name"] for method in result] == ["Venmo"]
+
+    def test_stored_methods_without_a_usable_owner_id(self, accounts_table: Any) -> None:
+        accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
+        assert _stored_methods(None) == {}
+        assert _stored_methods("") == {}
+        assert _stored_methods(7) == {}
+
     def test_stored_methods_no_account(self, accounts_table: Any) -> None:
         assert _stored_methods(ACCOUNT_ID) == {}
 
@@ -321,18 +392,23 @@ class TestPaymentMethods:
             with pytest.raises(AppError):
                 _signed_qr_url(ACCOUNT_ID, method, offer.get_logger(__name__))
 
-    def test_suppress_logged_value_context(self) -> None:
-        # Two records exercise both outcomes of the filter's in/not-in check.
-        import logging as _logging
+    def test_pre_signing_leaves_no_filter_on_the_helpers_logger(self) -> None:
+        """PRIN-1: the pre-signing call does not mutate another module's logger.
 
-        logger = _logging.getLogger(offer._payment_methods.__name__)
-        logger.setLevel(_logging.INFO)
-        try:
-            with _suppress_logged_value("secret"):
-                logger.info("boom secret here")
-                logger.info("nothing sensitive")
-        finally:
-            logger.setLevel(_logging.NOTSET)
+        The key is still passed EXPLICITLY (the helper's no-key probe path is
+        three ``head_object`` calls to a guaranteed miss), and the helper's own
+        logger carries no ad-hoc filter afterwards: the old runtime
+        ``logging.Filter`` was attached to that module's logger for the duration
+        of every call and raced with concurrent invocations in one container.
+        The key itself is not a secret on this path — the pre-signed URL handed
+        to the buyer embeds it.
+        """
+        helper_logger = logging.getLogger(offer.generate_presigned_get_url.__module__)
+        method = {"name": "Venmo", "qrCodeUrl": "https://host/payment-qr-codes/sub1/venmo.png"}
+        with patch.object(offer, "generate_presigned_get_url", return_value="https://signed/v.png") as signed:
+            assert _signed_qr_url(ACCOUNT_ID, method, offer.get_logger(__name__)) == "https://signed/v.png"
+        assert signed.call_args.kwargs["s3_key"] == "payment-qr-codes/sub1/venmo.png"
+        assert helper_logger.filters == []
 
     def test_public_payment_methods_full(self, accounts_table: Any) -> None:
         accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
@@ -348,6 +424,39 @@ class TestPaymentMethods:
             )
             == []
         )
+
+    def test_reserved_only_allowlist_never_reads_the_accounts_table(
+        self, accounts_table: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PERF-6: Cash/Check are pseudo-methods, so no preferences read is needed.
+
+        ``_validate_name`` rejects reserved names, so they can never appear in
+        ``preferences.paymentMethods``; a cash/check-only offer must answer
+        without an accounts-table round trip.
+        """
+        reads: list[Any] = []
+        monkeypatch.setattr(offer, "_stored_methods", lambda owner_account_id: reads.append(owner_account_id) or {})
+        blob = {"allowedPaymentMethods": ["cash", "Check"]}
+        result = _public_payment_methods({"ownerAccountId": ACCOUNT_ID}, blob, offer.get_logger(__name__))
+        assert [method["name"] for method in result] == ["cash", "Check"]
+        assert reads == []
+
+    def test_a_stored_method_name_still_triggers_exactly_one_read(
+        self, accounts_table: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        accounts_table.put_item(Item={"accountId": ACCOUNT_ID, "preferences": {"paymentMethods": [{"name": "Venmo"}]}})
+        reads: list[Any] = []
+        real_stored_methods = offer._stored_methods
+
+        def counting(owner_account_id: Any) -> Dict[str, Dict[str, Any]]:
+            reads.append(owner_account_id)
+            return real_stored_methods(owner_account_id)
+
+        monkeypatch.setattr(offer, "_stored_methods", counting)
+        blob = {"allowedPaymentMethods": ["cash", "venmo", "paypal"]}
+        result = _public_payment_methods({"ownerAccountId": ACCOUNT_ID}, blob, offer.get_logger(__name__))
+        assert [method["name"] for method in result] == ["cash", "Venmo"]
+        assert reads == [ACCOUNT_ID]
 
 
 class TestBuildOffer:
