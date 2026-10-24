@@ -1,9 +1,10 @@
 /**
  * Loading the offer behind a public order share link.
  *
- * `no-cache` on the public client means every mount re-reads the offer: the
- * pre-signed QR URLs inside it expire after 15 minutes, and a stale offer would
- * hand the buyer images that 403.
+ * This query opts into `no-cache` (the public client default is cache-first,
+ * so that the immutable receipt read can be cached): the pre-signed QR URLs
+ * inside the offer expire after 15 minutes, and a stale offer would hand the
+ * buyer images that 403.
  */
 
 import { useQuery } from '@apollo/client/react';
@@ -14,7 +15,7 @@ import type { GqlPublicGetOrderOfferQuery, GqlPublicGetOrderOfferQueryVariables 
 export function usePublicOrderOffer(campaignId: string, token: string) {
   const { data, loading, error, refetch } = useQuery<GqlPublicGetOrderOfferQuery, GqlPublicGetOrderOfferQueryVariables>(
     PUBLIC_GET_ORDER_OFFER,
-    { variables: { campaignId, token }, skip: !campaignId || !token },
+    { variables: { campaignId, token }, skip: !campaignId || !token, fetchPolicy: 'no-cache' },
   );
 
   return { offer: (data?.publicGetOrderOffer ?? null) as PublicOfferView | null, loading, error, refetch };
