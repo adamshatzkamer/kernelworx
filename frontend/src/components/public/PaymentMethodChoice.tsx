@@ -19,7 +19,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { Alert, Box, Link, Stack, Typography } from '@mui/material';
+import { Alert, Box, FormControlLabel, Link, Radio, Stack, Typography } from '@mui/material';
 import { decodeQrLink, sanitizeQrLink } from '../../lib/qrDecode';
 import type { PublicPaymentMethodView } from './publicOrderTypes';
 
@@ -89,24 +89,23 @@ export const PaymentMethodChoice: React.FC<PaymentMethodChoiceProps> = ({
   onQrExpired,
 }) => (
   <Stack spacing={1} data-testid={`payment-method-${method.name}`}>
-    <Box
-      component="label"
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}
+    <FormControlLabel
       data-testid={`payment-label-${method.name}`}
+      control={
+        <Radio
+          checked={selected}
+          name="paymentMethod"
+          onChange={() => onSelect(method.name)}
+          sx={{ p: 0 }}
+        />
+      }
+      label={<Typography variant="body1">{method.name}</Typography>}
       onClick={() => onSelect(method.name)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') onSelect(method.name);
       }}
-    >
-      <Box
-        component="input"
-        type="radio"
-        name="paymentMethod"
-        checked={selected}
-        onChange={() => onSelect(method.name)}
-      />
-      <Typography variant="body1">{method.name}</Typography>
-    </Box>
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', m: 0 }}
+    />
 
     {selected && method.qrCodeUrl ? (
       <QrImageBlock methodName={method.name} qrCodeUrl={method.qrCodeUrl} onQrExpired={onQrExpired} />
