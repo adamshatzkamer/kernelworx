@@ -25,25 +25,49 @@ import { formatCurrency } from '../lib/api-utils';
 import { MAX_BUYER_NOTES_LENGTH } from '../lib/publicOrderValidation';
 import { usePublicOrderForm } from '../hooks/usePublicOrderForm';
 import { usePublicOrderOffer } from '../hooks/usePublicOrderOffer';
-import type { PublicOfferView } from '../components/public/publicOrderTypes';
+import { offerHasReachedCap, type PublicOfferView } from '../components/public/publicOrderTypes';
 
 export const NO_METHODS_MESSAGE = 'This seller has no payment methods available right now. Please check back later.';
+
+/** Shown when the campaign's public-order cap is exhausted: the link is live, but full. */
+export const SOLD_OUT_MESSAGE = 'This order link has reached its limit. The seller is not taking more orders here.';
 
 /**
  * An offer with an empty product or method list is a valid response (the server
  * returns NOT_FOUND for a dead link instead), so the form renders disabled with
- * this message rather than pretending the link is broken.
+ * this message rather than pretending the link is broken. A capped campaign
+ * disables the form the same way: the link is real, it simply cannot take more.
  */
 function offerIsOrderable(offer: PublicOfferView): boolean {
-  return offer.paymentMethods.length > 0 && offer.products.length > 0;
+  return offer.paymentMethods.length > 0 && offer.products.length > 0 && !offerHasReachedCap(offer);
 }
 
 const NoMethodsAlert: React.FC<{ offer: PublicOfferView }> = ({ offer }) =>
-  offerIsOrderable(offer) ? null : (
+  offer.paymentMethods.length === 0 || offer.products.length === 0 ? (
     <Alert severity="info" sx={{ mb: 2 }} data-testid="no-methods-alert">
       {NO_METHODS_MESSAGE}
     </Alert>
-  );
+  ) : null;
+
+/**
+ * The cap notice. `remainingOrders` and `isSoldOut` are additive, nullable
+ * schema fields, so an offer read that predates them carries neither and this
+ * renders nothing: the buyer then learns about the cap on submit, exactly as
+ * before those fields existed.
+ */
+const SoldOutAlert: React.FC<{ offer: PublicOfferView }> = ({ offer }) =>
+  offerHasReachedCap(offer) ? (
+    <Alert severity="warning" sx={{ mb: 2 }} data-testid="sold-out-alert">
+      {SOLD_OUT_MESSAGE}
+    </Alert>
+  ) : null;
+
+const RemainingOrdersNotice: React.FC<{ offer: PublicOfferView }> = ({ offer }) =>
+  typeof offer.remainingOrders === 'number' && offer.remainingOrders > 0 ? (
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} data-testid="remaining-orders">
+      {offer.remainingOrders} order{offer.remainingOrders === 1 ? '' : 's'} still available on this link.
+    </Typography>
+  ) : null;
 
 const SubmitErrorAlert: React.FC<{ message: string | null }> = ({ message }) =>
   message ? (
@@ -122,6 +146,8 @@ const FormView: React.FC<FormViewProps> = ({ offer, token, onQrExpired }) => {
       </Typography>
 
       <NoMethodsAlert offer={offer} />
+      <SoldOutAlert offer={offer} />
+      <RemainingOrdersNotice offer={offer} />
       <SubmitErrorAlert message={order.submitError} />
 
       <BuyerContactFields
@@ -180,6 +206,7 @@ const FormView: React.FC<FormViewProps> = ({ offer, token, onQrExpired }) => {
 
       <NoEmailConfirmDialog
         open={order.noEmailPrompt}
+        submitting={order.submitting}
         onGoBack={() => order.setNoEmailPrompt(false)}
         onContinue={() => void order.submitNow()}
       />

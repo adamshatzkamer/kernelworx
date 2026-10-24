@@ -34,13 +34,21 @@ export interface PublicOrderReceiptView {
   confirmationEmailSent: boolean;
 }
 
+export interface PublicOrderSubmittedSummaryItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  pricePerUnit: number;
+  subtotal: number;
+}
+
 export interface PublicOrderSubmittedSummary {
   firstName: string;
   lastName: string;
   paymentMethod: string;
   phone?: string;
   email?: string;
-  lineItems: { productName: string; quantity: number; subtotal: number }[];
+  lineItems: PublicOrderSubmittedSummaryItem[];
 }
 
 interface PublicOrderSuccessProps {
@@ -54,85 +62,95 @@ const confirmationCopy = (receipt: PublicOrderReceiptView, email: string | undef
   return 'We could not send the confirmation email. Your order was still placed — keep the order reference below.';
 };
 
-export const PublicOrderSuccess: React.FC<PublicOrderSuccessProps> = ({ receipt, summary }) => (
-  <Box data-testid="public-order-success">
-    <Alert severity="success" sx={{ mb: 3 }}>
-      <Typography variant="subtitle1" fontWeight="medium">
-        Your order was placed.
-      </Typography>
-      <Typography variant="body2">{confirmationCopy(receipt, summary.email)}</Typography>
-    </Alert>
+export const PublicOrderSuccess: React.FC<PublicOrderSuccessProps> = ({ receipt, summary }) => {
+  // Resolved once per render: the guard is a validation, and calling it per
+  // use would let the href and the visible text disagree if it ever became
+  // non-deterministic.
+  const receiptUrl = resolveReceiptUrl(receipt.receiptUrl);
 
-    <Box sx={{ mb: 2 }}>
-      <Typography variant="subtitle2">Order reference</Typography>
-      <Typography variant="body2" component="code" data-testid="order-reference">
-        {receipt.orderId}
-      </Typography>
-    </Box>
-
-    {resolveReceiptUrl(receipt.receiptUrl) ? (
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle2">Your receipt link</Typography>
-        <Typography variant="body2">
-          <Link href={resolveReceiptUrl(receipt.receiptUrl)!} data-testid="receipt-link" rel="noreferrer">
-            {resolveReceiptUrl(receipt.receiptUrl)}
-          </Link>
+  return (
+    <Box data-testid="public-order-success">
+      <Alert severity="success" sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" fontWeight="medium">
+          Your order was placed.
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Keep this link — it is the only way to view this order later.
+        <Typography variant="body2">{confirmationCopy(receipt, summary.email)}</Typography>
+      </Alert>
+
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle2">Order reference</Typography>
+        <Typography variant="body2" component="code" data-testid="order-reference">
+          {receipt.orderId}
         </Typography>
       </Box>
-    ) : null}
 
-    <Divider sx={{ my: 2 }} />
+      {receiptUrl ? (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2">Your receipt link</Typography>
+          <Typography variant="body2">
+            <Link href={receiptUrl} data-testid="receipt-link" rel="noreferrer">
+              {receiptUrl}
+            </Link>
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Keep this link — it is the only way to view this order later.
+          </Typography>
+        </Box>
+      ) : null}
 
-    <Typography variant="subtitle2" gutterBottom>
-      What you submitted
-    </Typography>
-    <Table size="small" sx={{ mb: 2 }}>
-      <TableHead>
-        <TableRow>
-          <TableCell>Item</TableCell>
-          <TableCell align="right">Qty</TableCell>
-          <TableCell align="right">Subtotal</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {summary.lineItems.map((item) => (
-          <TableRow key={`${item.productName}-${item.quantity}`}>
-            <TableCell>{item.productName}</TableCell>
-            <TableCell align="right">{item.quantity}</TableCell>
-            <TableCell align="right">{formatCurrency(item.subtotal)}</TableCell>
-          </TableRow>
-        ))}
-        <TableRow>
-          <TableCell align="left" sx={{ fontWeight: 500 }}>
-            Total ({summary.paymentMethod})
-          </TableCell>
-          <TableCell />
-          <TableCell align="right" sx={{ fontWeight: 500 }}>
-            {formatCurrency(receipt.totalAmount)}
-          </TableCell>
-        </TableRow>
-      </TableBody>
-    </Table>
+      <Divider sx={{ my: 2 }} />
 
-    <Stack spacing={0.25}>
-      <Typography variant="body2" color="text.secondary">
-        Buyer: {summary.firstName} {summary.lastName}
+      <Typography variant="subtitle2" gutterBottom>
+        What you submitted
       </Typography>
-      {summary.phone ? (
+      <Table size="small" sx={{ mb: 2 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Item</TableCell>
+            <TableCell align="right">Qty</TableCell>
+            <TableCell align="right">Each</TableCell>
+            <TableCell align="right">Subtotal</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {summary.lineItems.map((item) => (
+            <TableRow key={item.productId} data-testid={`summary-item-${item.productId}`}>
+              <TableCell>{item.productName}</TableCell>
+              <TableCell align="right">{item.quantity}</TableCell>
+              <TableCell align="right">{formatCurrency(item.pricePerUnit)}</TableCell>
+              <TableCell align="right">{formatCurrency(item.subtotal)}</TableCell>
+            </TableRow>
+          ))}
+          <TableRow>
+            <TableCell align="left" sx={{ fontWeight: 500 }}>
+              Total ({summary.paymentMethod})
+            </TableCell>
+            <TableCell />
+            <TableCell />
+            <TableCell align="right" sx={{ fontWeight: 500 }}>
+              {formatCurrency(receipt.totalAmount)}
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+
+      <Stack spacing={0.25}>
         <Typography variant="body2" color="text.secondary">
-          Phone: {summary.phone}
+          Buyer: {summary.firstName} {summary.lastName}
         </Typography>
-      ) : null}
-      {summary.email ? (
-        <Typography variant="body2" color="text.secondary">
-          Email: {summary.email}
-        </Typography>
-      ) : null}
-    </Stack>
-  </Box>
-);
+        {summary.phone ? (
+          <Typography variant="body2" color="text.secondary">
+            Phone: {summary.phone}
+          </Typography>
+        ) : null}
+        {summary.email ? (
+          <Typography variant="body2" color="text.secondary">
+            Email: {summary.email}
+          </Typography>
+        ) : null}
+      </Stack>
+    </Box>
+  );
+};
 
 export default PublicOrderSuccess;

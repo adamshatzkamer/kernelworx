@@ -18,6 +18,18 @@ import jsQR from 'jsqr';
 /** Upper bound on either canvas dimension before decoding (decode-side guard). */
 export const QR_DECODE_MAX_DIMENSION = 2048;
 
+/**
+ * Long-edge size the pixels are actually decoded at.
+ *
+ * jsQR's cost is per pixel, while a QR symbol carries far fewer modules than a
+ * seller-uploaded PNG carries pixels: decoding a 2048x2048 read synchronously
+ * on the main thread freezes the page for hundreds of milliseconds to read the
+ * same ~100 modules. Scaling the long edge to 640 keeps roughly six pixels per
+ * module for any payment QR — comfortably above what the decoder needs — while
+ * cutting the pixel count ~10x.
+ */
+export const QR_DECODE_TARGET_DIMENSION = 640;
+
 const ALLOWED_LINK_SCHEMES = new Set(['https', 'mailto']);
 
 /**
@@ -42,7 +54,22 @@ function naturalDimensionsWithinBound(element: HTMLImageElement): { width: numbe
   return { width, height };
 }
 
-/** Decode the image pixels; the canvas read can throw on a tainted canvas. */
+/**
+ * Canvas dimensions to decode at: the natural size when it already fits the
+ * target, otherwise the same aspect ratio scaled so the long edge is the
+ * target. Aspect ratio is preserved because jsQR reads square modules.
+ */
+export function decodeDimensions(width: number, height: number): { width: number; height: number } {
+  const longEdge = Math.max(width, height);
+  if (longEdge <= QR_DECODE_TARGET_DIMENSION) return { width, height };
+  const scale = QR_DECODE_TARGET_DIMENSION / longEdge;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+/** Decode the image pixels at the scaled size; the canvas read can throw on a tainted canvas. */
 function decodePixels(
   context: CanvasRenderingContext2D,
   element: HTMLImageElement,
@@ -50,7 +77,7 @@ function decodePixels(
   height: number,
 ): string | null {
   try {
-    context.drawImage(element, 0, 0);
+    context.drawImage(element, 0, 0, width, height);
     const imageData = context.getImageData(0, 0, width, height);
     const decoded = jsQR(imageData.data, width, height);
     return sanitizeQrLink(decoded?.data);
@@ -69,9 +96,9 @@ function decodePixels(
  */
 export function decodeQrLink(element: HTMLImageElement | null): string | null {
   if (!element) return null;
-  const dimensions = naturalDimensionsWithinBound(element);
-  if (!dimensions) return null;
-  const { width, height } = dimensions;
+  const natural = naturalDimensionsWithinBound(element);
+  if (!natural) return null;
+  const { width, height } = decodeDimensions(natural.width, natural.height);
 
   const canvas = element.ownerDocument.createElement('canvas');
   canvas.width = width;

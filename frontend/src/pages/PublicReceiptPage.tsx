@@ -12,26 +12,15 @@
 
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@apollo/client/react';
-import {
-  Box,
-  Divider,
-  Paper,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-} from '@mui/material';
+import { Box, Button, Divider, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { LoadingState } from '../components/LoadingState';
 import { NoIndexMeta } from '../components/NoIndexMeta';
 import { PublicPageUnavailable } from '../components/public/PublicPageUnavailable';
 import { ReceiptStatusChip } from '../components/public/ReceiptStatusChip';
 import { PUBLIC_GET_ORDER_RECEIPT } from '../lib/publicOrderGraphQL';
-import { formatCurrency } from '../lib/api-utils';
+import { formatCurrency, isNotFoundError } from '../lib/api-utils';
 import { formatDisplayDate } from '../lib/date-utils';
+import type { ApolloLikeError } from '../lib/api-utils';
 import type { GqlPublicGetOrderReceiptQuery, GqlPublicGetOrderReceiptQueryVariables } from '../types/graphql-generated';
 
 type ReceiptView = GqlPublicGetOrderReceiptQuery['publicGetOrderReceipt'];
@@ -95,17 +84,44 @@ const ReceiptBody: React.FC<{ receipt: ReceiptView }> = ({ receipt }) => (
   </Paper>
 );
 
+/**
+ * A receipt read that failed for a reason other than the link being dead.
+ *
+ * Telling a buyer the link is unavailable when the network merely blipped sends
+ * them to support over an order that exists and a link that still works, so a
+ * transient failure gets its own retryable state instead.
+ */
+const ReceiptLoadError: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
+  <Paper elevation={0} sx={{ p: { xs: 2, sm: 3 } }} data-testid="receipt-load-error">
+    <Typography variant="h4" gutterBottom>
+      We could not load your receipt
+    </Typography>
+    <Typography variant="body2" color="text.secondary">
+      That is usually a connection problem rather than a problem with your link — your order is still placed.
+    </Typography>
+    <Button variant="contained" onClick={onRetry} sx={{ mt: 2 }} data-testid="receipt-retry">
+      Try again
+    </Button>
+  </Paper>
+);
+
 interface PageBodyProps {
-  complete: boolean;
   loading: boolean;
   receipt: ReceiptView | null;
+  error?: ApolloLikeError | undefined;
+  onRetry: () => void;
 }
 
-const PageBody: React.FC<PageBodyProps> = ({ complete, loading, receipt }) => {
-  if (!complete) return <PublicPageUnavailable />;
-  if (loading && !receipt) return <LoadingState />;
-  if (!receipt) return <PublicPageUnavailable />;
-  return <ReceiptBody receipt={receipt} />;
+/**
+ * A skipped query (malformed link) leaves no loading flag and no error, so it
+ * falls through to the unavailable screen; a failed read that is not a NOT_FOUND
+ * gets the retryable screen instead of that same dead-link message.
+ */
+const PageBody: React.FC<PageBodyProps> = ({ loading, receipt, error, onRetry }) => {
+  if (receipt) return <ReceiptBody receipt={receipt} />;
+  if (loading) return <LoadingState />;
+  if (error && !isNotFoundError(error)) return <ReceiptLoadError onRetry={onRetry} />;
+  return <PublicPageUnavailable />;
 };
 
 interface ReceiptSegments {
@@ -133,7 +149,7 @@ export const PublicReceiptPage: React.FC = () => {
   const segments = receiptSegments(params);
   const complete = segmentsAreComplete(segments);
 
-  const { data, loading } = useQuery<GqlPublicGetOrderReceiptQuery, GqlPublicGetOrderReceiptQueryVariables>(
+  const { data, loading, error, refetch } = useQuery<GqlPublicGetOrderReceiptQuery, GqlPublicGetOrderReceiptQueryVariables>(
     PUBLIC_GET_ORDER_RECEIPT,
     {
       // The two id segments are passed through as-is: the server re-prefixes
@@ -146,7 +162,12 @@ export const PublicReceiptPage: React.FC = () => {
   return (
     <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 700, mx: 'auto' }}>
       <NoIndexMeta />
-      <PageBody complete={complete} loading={loading} receipt={data?.publicGetOrderReceipt ?? null} />
+      <PageBody
+        loading={loading}
+        receipt={data?.publicGetOrderReceipt ?? null}
+        error={error as ApolloLikeError | undefined}
+        onRetry={() => void refetch()}
+      />
     </Box>
   );
 };
