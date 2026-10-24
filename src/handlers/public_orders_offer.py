@@ -439,6 +439,52 @@ def _signed_qr_url(owner_account_id: Any, method: Dict[str, Any], logger: Any) -
         return None
 
 
+def _allowlist_pairs(blob: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """The allowlist as ``(display name, lookup key)`` pairs; non-strings dropped.
+
+    A non-list ``allowedPaymentMethods`` (a hand-edited or partially migrated
+    blob) is an empty allowlist, not an error.
+    """
+    allowed = blob.get("allowedPaymentMethods")
+    names = [name for name in allowed if isinstance(name, str)] if isinstance(allowed, list) else []
+    return [(name, name.strip().lower()) for name in names]
+
+
+def _stored_for_allowlist(profile: Dict[str, Any], pairs: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
+    """The account's stored methods, read only when the allowlist can name one.
+
+    The accounts-table read is deferred (PERF-6): ``Cash`` and ``Check`` are
+    global pseudo-methods that never live in ``preferences.paymentMethods``
+    (``_validate_name`` rejects reserved names), so a cash/check-only allowlist
+    cannot hit a stored entry at all, and reading the account for it would add a
+    DynamoDB round trip to every such offer.
+    """
+    if all(key in RESERVED_NAMES for _, key in pairs):
+        return {}
+    return _stored_methods(profile.get("ownerAccountId"))
+
+
+def _shaped_method(
+    profile: Dict[str, Any], name: str, key: str, stored: Dict[str, Dict[str, Any]], logger: Any
+) -> Optional[Dict[str, Any]]:
+    """Shape one allowlisted method for the offer, or None when it no longer exists.
+
+    A stored method keeps its own display name and gets its QR image pre-signed.
+    A reserved pseudo-method resolves to the allowlisted spelling with no QR
+    image. Anything else is a method the seller allowlisted and has since
+    deleted, so it drops out.
+    """
+    method = stored.get(key)
+    if method:
+        return {
+            "name": method["name"],
+            "qrCodeUrl": _signed_qr_url(profile.get("ownerAccountId"), method, logger),
+        }
+    if key in RESERVED_NAMES:
+        return {"name": name, "qrCodeUrl": None}
+    return None
+
+
 def _public_payment_methods(profile: Dict[str, Any], blob: Dict[str, Any], logger: Any) -> List[Dict[str, Any]]:
     """Allowlist intersected with the account's still-existing methods.
 
@@ -451,33 +497,18 @@ def _public_payment_methods(profile: Dict[str, Any], blob: Dict[str, Any], logge
     entry — but they are NOT force-added: they appear only because the seller
     allowlisted them.
     """
-    allowed = blob.get("allowedPaymentMethods")
-    names = [name for name in allowed if isinstance(name, str)] if isinstance(allowed, list) else []
-    pairs = [(name, name.strip().lower()) for name in names]
-
-    # The accounts-table read is deferred: a cash/check-only allowlist cannot
-    # name a stored method at all (``_validate_name`` rejects reserved names, so
-    # they never live in ``preferences.paymentMethods``), and reading the account
-    # for it would add a DynamoDB round trip to every such offer.
-    stored: Dict[str, Dict[str, Any]] = (
-        _stored_methods(profile.get("ownerAccountId")) if any(key not in RESERVED_NAMES for _, key in pairs) else {}
-    )
+    pairs = _allowlist_pairs(blob)
+    stored = _stored_for_allowlist(profile, pairs)
 
     methods: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for name, key in pairs:
         if key in seen:
             continue
-        method = stored.get(key)
-        if method:
-            display_name = method["name"]
-            qr_code_url = _signed_qr_url(profile.get("ownerAccountId"), method, logger)
-        elif key in RESERVED_NAMES:
-            display_name, qr_code_url = name, None
-        else:
-            continue
         seen.add(key)
-        methods.append({"name": display_name, "qrCodeUrl": qr_code_url})
+        shaped = _shaped_method(profile, name, key, stored, logger)
+        if shaped is not None:
+            methods.append(shaped)
     return methods
 
 

@@ -107,7 +107,9 @@ class TestLoadCampaign:
         with pytest.raises(AppError):
             offer._load_campaign(CAMPAIGN_ID, offer.get_logger(__name__))
 
-    def test_zero_projection_logs_info_not_warning(self, campaigns_table: Any, caplog: pytest.LogCaptureFixture) -> None:
+    def test_zero_projection_logs_info_not_warning(
+        self, campaigns_table: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
         # A stale share link or an anonymous token probe is the normal zero-hit
         # case: it must not raise the log level.
         with caplog.at_level(logging.INFO):

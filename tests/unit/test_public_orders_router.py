@@ -29,7 +29,10 @@ ROUTER_SOURCE = Path(router.__file__)
 
 
 def _event(**overrides: Any) -> Dict[str, Any]:
-    event: Dict[str, Any] = {"arguments": {"campaignId": "c1", "token": "tok"}, "info": {"fieldName": "publicGetOrderOffer"}}
+    event: Dict[str, Any] = {
+        "arguments": {"campaignId": "c1", "token": "tok"},
+        "info": {"fieldName": "publicGetOrderOffer"},
+    }
     event.update(overrides)
     return event
 
@@ -62,9 +65,11 @@ class TestRouting:
     def test_the_email_operation_routes_ahead_of_the_field_name(self) -> None:
         """An Invoke payload has no field name; the discriminator wins regardless."""
         event = _event(operation="send_order_emails")
-        with patch.object(router, "handle_send_order_emails", return_value="mailer"), patch.object(
-            router, "handle_receipt"
-        ) as receipt, patch.object(offer, "_run_guarded") as build:
+        with (
+            patch.object(router, "handle_send_order_emails", return_value="mailer"),
+            patch.object(router, "handle_receipt") as receipt,
+            patch.object(offer, "_run_guarded") as build,
+        ):
             assert router.route(event, None) == "mailer"
         assert receipt.call_args_list == []
         assert build.call_args_list == []
