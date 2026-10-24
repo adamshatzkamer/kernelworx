@@ -183,6 +183,13 @@ export type GqlCampaignReport = {
   status: Scalars['String']['output'];
 };
 
+/** The state of a campaign's public order surface. */
+export type GqlCampaignState =
+  /** Public orders are disabled or the campaign is inactive. */
+  | 'INACTIVE'
+  /** Public orders are enabled and the campaign is active. */
+  | 'OK';
+
 /**
  * A catalog of products that campaigns sell from.
  *
@@ -650,6 +657,10 @@ export type GqlOrder = {
   __typename?: 'Order';
   /** The ID of the campaign the order belongs to. */
   campaignId: Scalars['ID']['output'];
+  /** When the order was confirmed by the seller (for CONFIRMED orders). */
+  confirmedAt?: Maybe<Scalars['AWSDateTime']['output']>;
+  /** The account ID of the user who confirmed the order (for CONFIRMED orders). */
+  confirmedBy?: Maybe<Scalars['ID']['output']>;
   /** When the order was created. */
   createdAt: Scalars['AWSDateTime']['output'];
   /** The customer's address, if provided. */
@@ -795,10 +806,14 @@ export type GqlPublicOrderOffer = {
   campaignId: Scalars['ID']['output'];
   /** The campaign's display name. */
   campaignName: Scalars['String']['output'];
+  /** True when the campaign has reached its public order cap (500). */
+  isSoldOut?: Maybe<Scalars['Boolean']['output']>;
   /** The allowlisted payment methods that still exist on the account, each with a short-lived pre-signed QR image URL when a QR was uploaded. */
   paymentMethods: Array<GqlPublicPaymentMethod>;
   /** The campaign's catalog's products in catalog order (v1: the full active catalog, unpaginated). */
   products: Array<GqlPublicProduct>;
+  /** Remaining order slots before the campaign reaches its public order cap (500). Null if the campaign has no cap. */
+  remainingOrders?: Maybe<Scalars['Int']['output']>;
   /** The seller profile's display name. */
   sellerName: Scalars['String']['output'];
 };
@@ -849,7 +864,7 @@ export type GqlPublicOrderSettings = {
   allowedPaymentMethods: Array<Scalars['String']['output']>;
   campaignId: Scalars['ID']['output'];
   campaignName: Scalars['String']['output'];
-  campaignState: Scalars['String']['output'];
+  campaignState: GqlCampaignState;
   enabled: Scalars['Boolean']['output'];
   publicOrderCount?: Maybe<Scalars['Int']['output']>;
   shareToken?: Maybe<Scalars['String']['output']>;
@@ -2956,7 +2971,7 @@ export type GqlGetCampaignPublicOrderSettingsQuery = {
         publicOrderCount?: number | null | undefined;
         campaignId: string;
         campaignName: string;
-        campaignState: string;
+        campaignState: GqlCampaignState;
       }
     | null
     | undefined;
@@ -2978,7 +2993,7 @@ export type GqlUpdateCampaignPublicOrderSettingsMutation = {
     publicOrderCount?: number | null | undefined;
     campaignId: string;
     campaignName: string;
-    campaignState: string;
+    campaignState: GqlCampaignState;
   };
 };
 
