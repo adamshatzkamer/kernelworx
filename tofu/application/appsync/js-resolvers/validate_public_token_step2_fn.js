@@ -99,6 +99,11 @@ export function response(ctx) {
     // disabled campaign, a missing blob, a bad token, and a dead campaign all
     // read the same way to a probe.
     if (!tokenMatches(blob, input ? input.token : null)) {
+        // Marker counted by the public-token-mismatch CloudWatch metric filter
+        // (tofu/application/modules/alarms/): a probe flood of bad tokens
+        // answers HTTP 200 and is invisible to the AppSync 4XXError alarm.
+        // Marker only - no token material, no caller PII.
+        console.error('PUBLIC_ORDER_TOKEN_MISMATCH');
         util.error(PUBLIC_ORDER_UNAVAILABLE, 'NOT_FOUND');
         return null;
     }
@@ -146,6 +151,10 @@ export function response(ctx) {
     // The canonical ids the rest of the pipeline keys on. The campaign row read
     // here is the one every later step (and the order row itself) keys off.
     ctx.stash.campaign = campaign;
+    // The throttle step (step 3) keys its fixed-window item off the SERVER-side
+    // token just validated, never the caller's raw argument - a caller cannot
+    // pick a fresh throttle identity by reformatting their token.
+    ctx.stash.publicOrderToken = typeof blob.token === 'string' ? blob.token : '';
     // Normalized here so the reused get_catalog step (which reads
     // ctx.stash.catalogId) sees the DB key form.
     ctx.stash.catalogId = normalizeIdOrPrefix(campaign.catalogId, 'CATALOG#');

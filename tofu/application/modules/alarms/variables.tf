@@ -38,6 +38,24 @@ variable "appsync_4xx_period_seconds" {
   default     = 300
 }
 
+variable "public_abuse_period_seconds" {
+  description = "Aggregation window shared by the public-abuse metric-filter alarms (token mismatch and cap rejection)"
+  type        = number
+  default     = 300
+}
+
+variable "public_token_mismatch_threshold" {
+  description = "Alarm when publicCreateOrder share-token mismatches reach this count in public_abuse_period_seconds. A legitimate buyer never mismatches (the token travels in their own URL), so sustained mismatches are a probe flood. Chosen below flood volume but above a single careless retry burst."
+  type        = number
+  default     = 20
+}
+
+variable "public_cap_rejection_threshold" {
+  description = "Alarm when publicCreateOrder cap/throttle rejections reach this count in public_abuse_period_seconds. Set above what an organic sell-out burst (the campaign's last few orders racing the cap) can produce, below a deliberate order flood."
+  type        = number
+  default     = 10
+}
+
 variable "ses_reputation_enabled" {
   description = "Whether to create the SES reputation alarms. Prod only: SES reputation and suppression are account-level, and the account whose sending reputation matters for real buyers is the prod account."
   type        = bool

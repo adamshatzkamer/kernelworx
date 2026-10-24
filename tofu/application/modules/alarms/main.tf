@@ -42,10 +42,16 @@ locals {
 # Notification target
 # ---------------------------------------------------------------------------
 
+# Account and region for the topic policy's CloudWatch source conditions.
+# Alarm actions publish as the cloudwatch.amazonaws.com service principal and
+# the publish call carries aws:SourceAccount/aws:SourceArn of the alarm (the
+# shape AWS documents for allowing alarms to reach an SNS topic).
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
 data "aws_iam_policy_document" "ops_alerts" {
-  # The only publisher is the account's own EventBridge rules (the API-key
-  # expiry reminder). Alarms reach the topic through alarm_actions, which the
-  # CloudWatch service principal is granted through the service itself.
+  # EventBridge rules (the API-key expiry reminder) publish with their rule ARN
+  # as aws:SourceArn, so this statement is scoped to them.
   statement {
     sid       = "AllowEventBridgePublish"
     effect    = "Allow"
@@ -55,6 +61,49 @@ data "aws_iam_policy_document" "ops_alerts" {
     principals {
       type        = "Service"
       identifiers = ["events.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:events:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:rule/${local.name}-*"]
+    }
+  }
+
+  # CloudWatch alarms reach this topic through alarm_actions, publishing as the
+  # cloudwatch.amazonaws.com service principal. Without this statement every
+  # alarm delivery fails silently (AccessDenied), and with the AWS-managed SNS
+  # KMS key it would fail silently anyway (CloudWatch alarms cannot publish to
+  # alias/aws/sns topics) - that double failure is what made this module inert.
+  # Scoped per AWS docs: SourceAccount pins the publisher to this account and
+  # SourceArn pins it to this account's own alarm namespace.
+  statement {
+    sid       = "AllowCloudWatchAlarmsPublish"
+    effect    = "Allow"
+    actions   = ["SNS:Publish"]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:cloudwatch:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:alarm:*"]
     }
   }
 
@@ -77,17 +126,18 @@ data "aws_iam_policy_document" "ops_alerts" {
   }
 }
 
+# kics-scan ignore-line -- topic intentionally unencrypted: see the encryption note below
 resource "aws_sns_topic" "ops_alerts" {
   count = var.create ? 1 : 0
 
-  # SNS encrypts at rest, but KICS wants a customer-managed key here (HIGH when
-  # the attribute is absent, MEDIUM when it is the AWS-managed one). A CMK costs
-  # $1/month for a topic whose only payload is an alarm name — the same
-  # KMS-avoidance posture already taken for the DynamoDB tables and the
-  # CloudWatch log groups (tofu/.kics.yml).
+  # Unencrypted, mirroring the KMS-avoidance posture of the DynamoDB tables
+  # (AWS-owned key) and the CloudWatch log groups (tofu/.kics.yml). The old
+  # alias/aws/sns setting was worse than decoration: CloudWatch alarms CANNOT
+  # publish to SNS topics encrypted with the AWS-managed SNS key, so every
+  # alarm action failed silently at delivery. An unencrypted topic is the only
+  # zero-cost shape in which alarm delivery actually works; payloads are alarm
+  # names, and SNS still enforces TLS-only via the RequireTls statement above.
   name = "${local.name}-ops"
-  # kics-scan ignore-line -- AWS-managed SNS key, not a CMK: see the cost note above
-  kms_master_key_id = "alias/aws/sns"
 
   tags = {
     Name = "${local.name}-ops"
@@ -146,6 +196,89 @@ resource "aws_cloudwatch_metric_alarm" "appsync_4xx" {
   dimensions = {
     GraphQLAPIId = var.appsync_api_id
   }
+
+  alarm_actions = [aws_sns_topic.ops_alerts[0].arn]
+}
+
+# ---------------------------------------------------------------------------
+# Public-abuse metric filters (dev + prod)
+# ---------------------------------------------------------------------------
+#
+# The 4XXError alarm above only sees transport-level auth failures. A token
+# probe flood and a throttle/cap rejection both surface as GraphQL errors under
+# HTTP 200, so they never touch 4XXError - the two filters below make those
+# invisible-today signals visible. Each counts dedicated console.error marker
+# lines the APPSYNC_JS resolvers emit (the exact strings the filter patterns
+# quote): validate_public_token_step2_fn.js emits PUBLIC_ORDER_TOKEN_MISMATCH
+# on a share-token mismatch and increment_public_order_count_fn.js emits
+# PUBLIC_ORDER_CAP_REJECTED when the cap condition fails. Markers carry no
+# caller PII and no token material, so logging them is safe.
+#
+# The filters live in this module (with the alarms) rather than the appsync
+# module because a metric filter is alarm plumbing: it exists only to feed the
+# alarm. The log group name is derived from the API id, matching the managed
+# group aws_cloudwatch_log_group.appsync names "/aws/appsync/apis/<id>".
+
+resource "aws_cloudwatch_log_metric_filter" "public_token_mismatch" {
+  count = var.create ? 1 : 0
+
+  name           = "${local.name}-public-token-mismatch"
+  log_group_name = "/aws/appsync/apis/${var.appsync_api_id}"
+  pattern        = "\"PUBLIC_ORDER_TOKEN_MISMATCH\""
+
+  metric_transformation {
+    name      = "PublicOrderTokenMismatch"
+    namespace = "Kernelworx/PublicOrders"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "public_cap_rejected" {
+  count = var.create ? 1 : 0
+
+  name           = "${local.name}-public-cap-rejected"
+  log_group_name = "/aws/appsync/apis/${var.appsync_api_id}"
+  pattern        = "\"PUBLIC_ORDER_CAP_REJECTED\""
+
+  metric_transformation {
+    name      = "PublicOrderCapRejected"
+    namespace = "Kernelworx/PublicOrders"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "public_token_mismatch" {
+  count = var.create ? 1 : 0
+
+  alarm_name          = "${local.name}-public-token-mismatch"
+  alarm_description   = "publicCreateOrder share-token mismatches reached ${var.public_token_mismatch_threshold} in ${var.public_abuse_period_seconds}s: a token probe flood (bad tokens answer HTTP 200, so this is invisible to the 4xx alarm)"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  threshold           = var.public_token_mismatch_threshold
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "Kernelworx/PublicOrders"
+  metric_name = "PublicOrderTokenMismatch"
+  period      = var.public_abuse_period_seconds
+  statistic   = "Sum"
+
+  alarm_actions = [aws_sns_topic.ops_alerts[0].arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "public_cap_rejected" {
+  count = var.create ? 1 : 0
+
+  alarm_name          = "${local.name}-public-cap-rejected"
+  alarm_description   = "publicCreateOrder cap/throttle rejections reached ${var.public_cap_rejection_threshold} in ${var.public_abuse_period_seconds}s: an order-flood attempt against one or more campaigns"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  threshold           = var.public_cap_rejection_threshold
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "Kernelworx/PublicOrders"
+  metric_name = "PublicOrderCapRejected"
+  period      = var.public_abuse_period_seconds
+  statistic   = "Sum"
 
   alarm_actions = [aws_sns_topic.ops_alerts[0].arn]
 }

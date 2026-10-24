@@ -606,33 +606,77 @@ resource "aws_dynamodb_table" "shared_campaigns" {
 }
 
 # ============================================================================
+# Public Order Throttles Table
+# PK: key ("<shareToken>#<windowStartEpoch>")
+# TTL: expiresAt (epoch seconds)
+#
+# Abuse guard for the anonymous publicCreateOrder write path (SEC-6): one small
+# item per (share token, 60s window), atomically ADDed by the pipeline's
+# throttle step. TTL is load-bearing only for storage reclamation - the window
+# in the key means an expired item is never read. No GSIs: reads are GetItem-
+# free (the throttle is a blind UpdateItem keyed by construction).
+# ============================================================================
+resource "aws_dynamodb_table" "public_order_throttles" {
+  name                        = "${var.name_prefix}-public-order-throttles${local.table_suffix}"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "key"
+  deletion_protection_enabled = var.enable_deletion_protection
+
+  attribute {
+    name = "key"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.enable_point_in_time_recovery
+  }
+
+  server_side_encryption {
+    enabled = false
+  }
+
+  tags = local.tags
+
+  lifecycle {
+    prevent_destroy = var.prevent_destroy
+  }
+}
+
+# ============================================================================
 # Outputs
 # ============================================================================
 output "table_arns" {
   description = "Map of all DynamoDB table ARNs"
   value = {
-    accounts         = aws_dynamodb_table.accounts.arn
-    catalogs         = aws_dynamodb_table.catalogs.arn
-    profiles         = aws_dynamodb_table.profiles.arn
-    campaigns        = aws_dynamodb_table.campaigns.arn
-    orders           = aws_dynamodb_table.orders.arn
-    shares           = aws_dynamodb_table.shares.arn
-    invites          = aws_dynamodb_table.invites.arn
-    shared_campaigns = aws_dynamodb_table.shared_campaigns.arn
+    accounts               = aws_dynamodb_table.accounts.arn
+    catalogs               = aws_dynamodb_table.catalogs.arn
+    profiles               = aws_dynamodb_table.profiles.arn
+    campaigns              = aws_dynamodb_table.campaigns.arn
+    orders                 = aws_dynamodb_table.orders.arn
+    shares                 = aws_dynamodb_table.shares.arn
+    invites                = aws_dynamodb_table.invites.arn
+    shared_campaigns       = aws_dynamodb_table.shared_campaigns.arn
+    public_order_throttles = aws_dynamodb_table.public_order_throttles.arn
   }
 }
 
 output "table_names" {
   description = "Map of all DynamoDB table names"
   value = {
-    accounts         = aws_dynamodb_table.accounts.name
-    catalogs         = aws_dynamodb_table.catalogs.name
-    profiles         = aws_dynamodb_table.profiles.name
-    campaigns        = aws_dynamodb_table.campaigns.name
-    orders           = aws_dynamodb_table.orders.name
-    shares           = aws_dynamodb_table.shares.name
-    invites          = aws_dynamodb_table.invites.name
-    shared_campaigns = aws_dynamodb_table.shared_campaigns.name
+    accounts               = aws_dynamodb_table.accounts.name
+    catalogs               = aws_dynamodb_table.catalogs.name
+    profiles               = aws_dynamodb_table.profiles.name
+    campaigns              = aws_dynamodb_table.campaigns.name
+    orders                 = aws_dynamodb_table.orders.name
+    shares                 = aws_dynamodb_table.shares.name
+    invites                = aws_dynamodb_table.invites.name
+    shared_campaigns       = aws_dynamodb_table.shared_campaigns.name
+    public_order_throttles = aws_dynamodb_table.public_order_throttles.name
   }
 }
 

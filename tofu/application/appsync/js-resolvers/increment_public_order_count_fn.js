@@ -64,6 +64,12 @@ export function response(ctx) {
             // At the cap (or the campaign row vanished). No order row was
             // written, and the counter is unchanged - the condition failed, so
             // the ADD did not apply.
+            //
+            // Marker counted by the public-cap-rejected CloudWatch metric
+            // filter (tofu/application/modules/alarms/): cap rejections
+            // answer HTTP 200 and are invisible to the AppSync 4XXError alarm.
+            // Marker only - no campaign or caller material.
+            console.error('PUBLIC_ORDER_CAP_REJECTED');
             util.error('This campaign has reached its public order limit', 'PUBLIC_ORDER_LIMIT_EXCEEDED');
             return null;
         }

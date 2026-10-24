@@ -38,16 +38,32 @@ That test is a deliberate date gate: it starts failing once the declared expiry
 is past or the value is out of the service cap. It is the CI half of the
 expiry guard; the runtime half is below.
 
-## Rotation is a hard cutover
+## Rotation is an add-new → deploy → remove-old sequence
 
-AppSync permits one key per API-key mode, and the provider **replaces** the key
-resource when `expires` changes. The old value is gone; the deployed frontend
-bundle still carries it. So between the apply and the moment the rebuilt bundle
-is live, every public call answers `Unauthorized` — buyers see a dead offer
-page. The deploy pipeline (`deploy-shared.yml`) applies tofu and then builds and
-publishes the frontend in the same run, so the gap is the deploy duration plus
-any browser tab that was already open. Accept the gap; do not try to run two
-keys side by side, because AppSync will not let you.
+The old version of this runbook claimed that editing `expires` mints a new key.
+**That premise was false**: the provider updates `expires` in place via
+`UpdateApiKey` and the key material never changes, so a leaked key "rotated"
+that way stays valid. An expires-only edit renews lifetime; it does NOT revoke
+anything. Do not use it as an incident response.
+
+AppSync's API-key mode genuinely supports multiple keys per API, and the
+terraform models both slots explicitly (`var.public_orders_key_slots` in
+`tofu/application/modules/appsync/variables.tf`):
+
+- `"a"` (steady state): only slot A (`aws_appsync_api_key.public_orders`)
+  exists and the module's `api_key` output reads it.
+- `"ab"` (phase 1, ADD NEW): slot B (`aws_appsync_api_key.public_orders_rotation`)
+  is created. The module output — and therefore every frontend bundle the
+  deploy builds — now reads B, while slot A **stays valid**, so no open buyer
+  tab breaks mid-rotation.
+- `"b"` (phase 3, REMOVE OLD): slot A is destroyed and the leaked key is
+  actually revoked.
+
+There is no `"ba"` convenience state: going back to a single key after a
+rotation means setting `"a"` again, which recreates slot A with fresh key
+material (and drops B). Between phase 1 and phase 3 the old key stays valid by
+design — the cutover of which key the fleet bakes happens at deploy time in
+phase 1, and revocation happens only in phase 3, when you ask for it.
 
 ## Renewal (planned, before expiry)
 
@@ -65,10 +81,25 @@ keys side by side, because AppSync will not let you.
 ## On-incident rotation (suspected key or token abuse)
 
 1. Prefer the cheaper remedy first: rotate the **profile's share token** from the
-   seller's public-orders settings. That revokes the leaked URL without breaking
-   every open buyer tab.
-2. If the key itself is the problem, rotate it: change `expires` (any new value
-   mints a new key) and deploy. Expect the cutover gap above.
+   seller's public-orders settings. That revokes the leaked URL without touching
+   the API key at all.
+2. If the key itself is compromised, run the three-phase key rotation (an
+   expires-only edit is NOT sufficient — see above):
+   1. **Add new:** set `public_orders_key_slots = "ab"` and deploy. This creates
+      slot B and ships a bundle baking B; slot A remains valid meanwhile.
+   2. **Verify the new key:** with the deploy finished, the public page must
+      load an offer (`publicGetOrderOffer` using the new `VITE_APPSYNC_API_KEY`
+      from `tofu output -raw appsync_api_key`).
+   3. **Verify the old key is still live (expected):** a call signed with the
+      old slot-A key must still succeed — that is the no-gap property of phase
+      1, not a failure of the rotation.
+   4. **Remove old:** set `public_orders_key_slots = "b"` and deploy. This
+      destroys slot A.
+   5. **Verify revocation:** a call signed with the old slot-A key must now
+      answer `UNAUTHENTICATED`, and the same call with the new key must
+      succeed. If the old key still works, the wrong slot was destroyed —
+      stop and reconcile `tofu state list | grep appsync_api_key` against the
+      console before proceeding.
 3. Check the alarm history and the AppSync `4XXError` metric for the flood's
    shape before and after.
 
@@ -86,6 +117,8 @@ go. This is out of band, like the SES identity verification.
 | Alarm | Scope | Catches |
 |-------|-------|---------|
 | `kernelworx-alarms-<env>-appsync-4xx` | dev + prod | AppSync `4XXError` sum ≥ 100 per 300s. Bad/expired API key, bad share tokens, and throttled public calls all land in this metric. |
+| `kernelworx-alarms-<env>-public-token-mismatch` | dev + prod | ≥ 20 `PUBLIC_ORDER_TOKEN_MISMATCH` resolver log lines per 300s. A share-token probe flood: bad tokens answer HTTP 200, so this signal is invisible to the 4xx alarm. Metric filter: `tofu/application/modules/alarms/main.tf`. |
+| `kernelworx-alarms-<env>-public-cap-rejected` | dev + prod | ≥ 10 cap/throttle rejections per 300s (`PUBLIC_ORDER_CAP_REJECTED` resolver log lines). An order-flood attempt against one or more campaigns, including the per-token 5-creates/60s throttle. |
 | `kernelworx-alarms-prod-ses-bounce-rate` | prod | SES `Reputation.BounceRate` ≥ 5% (1h average). |
 | `kernelworx-alarms-prod-ses-complaint-rate` | prod | SES `Reputation.ComplaintRate` ≥ 0.1% (1h average). |
 | `kernelworx-alarms-prod-public-api-key-expiry` | prod | Scheduled reminder 30 days before the key's `expires`. |
@@ -103,6 +136,14 @@ list rather than assumed:
   auth-mode dimension — so the 4xx alarm is API-wide, not key-scoped. Cognito
   client errors count toward it too. The threshold is a starting point; tune it
   against the metric once real buyer traffic exists.
+
+Two abuse signals the 4xx metric cannot see are covered by the
+`public-token-mismatch` and `public-cap-rejected` alarms above: resolver-level
+rejections (bad share token, cap/throttle) answer HTTP 200 with a GraphQL
+error body, so they never touch `4XXError`. Those two alarms read dedicated
+`console.error` markers the APPSYNC_JS resolvers emit into the AppSync resolver
+log group (`PUBLIC_ORDER_TOKEN_MISMATCH`, `PUBLIC_ORDER_CAP_REJECTED`), via
+CloudWatch metric filters in `tofu/application/modules/alarms/main.tf`.
 
 The SES reputation alarms are prod-only because reputation and suppression are
 account-level (spec Q3). Bounce handling is SES's built-in account-level

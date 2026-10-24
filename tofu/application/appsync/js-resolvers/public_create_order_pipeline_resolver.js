@@ -1,18 +1,23 @@
 import { util } from '@aws-appsync/utils';
 
 // Root resolver of the publicCreateOrder pipeline (#679 write slice, campaign-keyed
-// rework). Pipeline order (spec §5.3, with the email step deferred to the SES slice):
+// rework). Pipeline order (spec §5.3 plus the SEC-4 ownership confirmation,
+// the SEC-6 abuse throttle, and the SES slice's email step):
 //
 //   validate_public_token              (CampaignsDS, campaignId-index locator)
 //   validate_public_token_step2        (CampaignsDS, consistent read + the token,
 //                                       active, cap pre-check, allowlist, ack,
 //                                       bounds; stashes campaign + catalogId)
-//   get_profile_for_public_order      (ProfilesDS, owner account + seller name)
+//   throttle_public_order_create       (PublicOrderThrottlesDS, per-token
+//                                       fixed-window abuse guard, SEC-6)
+//   get_profile_for_public_order       (ProfilesDS, profileId-index LOCATOR only)
+//   get_profile_for_public_order_step2 (ProfilesDS, strongly consistent base-table
+//                                       ownership confirmation; SEC-4)
 //   get_catalog                       (CatalogsDS, reused as-is)
 //   validate_payment_method_public    (AccountsDS, clone: no name oracle)
 //   increment_public_order_count      (CampaignsDS, the cap CONDITION)
 //   create_public_order               (OrdersDS, the PutItem + receipt mint)
-//
+//   send_public_order_emails          (PublicOrdersDS, best-effort SES send)
 // The root passes the write step's composed receipt through. It is a pass-
 // through rather than an empty resolver because the mutation's return type is
 // PublicOrderReceipt!, and the write step is the only function that has the

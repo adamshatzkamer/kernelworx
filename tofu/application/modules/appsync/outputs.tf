@@ -33,19 +33,30 @@ output "api_arn" {
 # key is public by design, nonsensitive() strips the mark here, at the one
 # module boundary every environment's `appsync_api_key` output reads through,
 # so all of them stay unmasked for `tofu output -raw` / `-json` consumers.
+# The active key is slot A in steady state and slot B while a rotation window
+# is open (var.public_orders_key_slots, SEC-3). The whole point of the
+# add-new/deploy/remove-old sequence is that a new bundle bakes the NEW key
+# while the old one is still valid, so the output must prefer B whenever B
+# exists.
+locals {
+  active_public_orders_api_key    = var.public_orders_key_slots == "a" ? aws_appsync_api_key.public_orders[0].key : aws_appsync_api_key.public_orders_rotation[0].key
+  active_public_orders_api_key_id = var.public_orders_key_slots == "a" ? aws_appsync_api_key.public_orders[0].id : aws_appsync_api_key.public_orders_rotation[0].id
+}
+
 output "api_key" {
-  value       = nonsensitive(aws_appsync_api_key.public_orders.key)
+  value       = nonsensitive(local.active_public_orders_api_key)
   description = "AppSync API key for the public-orders (@aws_api_key) fields"
 }
 
 output "api_key_id" {
-  value       = aws_appsync_api_key.public_orders.id
+  value       = local.active_public_orders_api_key_id
   description = "AppSync public-orders API key ID (for import and recovery tooling)"
 }
 
 # The key's own expiry, exported so the ops alarms module can derive its renewal
-# reminder from it instead of restating a second date that can drift.
+# reminder from it instead of restating a second date that can drift. Both slots
+# carry the same literal, so either instance reads the same value.
 output "api_key_expires" {
-  value       = aws_appsync_api_key.public_orders.expires
+  value       = var.public_orders_key_slots == "a" ? aws_appsync_api_key.public_orders[0].expires : aws_appsync_api_key.public_orders_rotation[0].expires
   description = "RFC3339 expiry of the public-orders AppSync API key"
 }

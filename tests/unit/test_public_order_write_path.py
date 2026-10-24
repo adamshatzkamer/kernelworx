@@ -13,6 +13,14 @@ APPSYNC_JS pipeline whose step order is load-bearing twice over:
   stay adjacent to it: the increment's ConditionExpression is the authoritative
   cap bound, and the pair is atomic-by-adjacency (the accepted overcount for a
   PutItem failure depends on this order).
+- ``throttle_public_order_create`` (SEC-6) runs immediately after
+  authorization and before the profile/catalog/payment reads, so a flooding
+  token does no further work per request.
+- ``get_profile_for_public_order_step2`` (SEC-4) must run AFTER
+  ``get_profile_for_public_order`` and BEFORE ``validate_payment_method_public``
+  and ``send_public_order_emails``: the owner id coming off the eventually
+  consistent GSI locator is not trusted for the payment read or the mailer
+  until the strongly consistent base-table read confirms it.
 
 Parsed with python-hcl2 via the harness in test_public_settings_pipeline_wiring.py.
 """
@@ -21,7 +29,9 @@ from tests.unit.test_public_settings_pipeline_wiring import MUTATION_RESOLVERS, 
 
 TOKEN = "aws_appsync_function.validate_public_token"
 TOKEN_STEP2 = "aws_appsync_function.validate_public_token_step2"
+THROTTLE = "aws_appsync_function.throttle_public_order_create"
 PROFILE = "aws_appsync_function.get_profile_for_public_order"
+PROFILE_STEP2 = "aws_appsync_function.get_profile_for_public_order_step2"
 CATALOG = "aws_appsync_function.get_catalog"
 PAYMENT = "aws_appsync_function.validate_payment_method_public"
 INCREMENT = "aws_appsync_function.increment_public_order_count"
@@ -34,7 +44,12 @@ def test_public_create_order_pipeline_order() -> None:
     assert pipeline == [
         TOKEN,
         TOKEN_STEP2,
+        # SEC-6: the per-token fixed-window throttle gates everything after it.
+        THROTTLE,
+        # SEC-4: GSI locator, then the strong ownership confirmation; the owner
+        # id is not trusted until PROFILE_STEP2.
         PROFILE,
+        PROFILE_STEP2,
         CATALOG,
         PAYMENT,
         INCREMENT,
@@ -43,6 +58,25 @@ def test_public_create_order_pipeline_order() -> None:
         # abort the committed order, and its own failure is swallowed by design.
         EMAIL,
     ], "publicCreateOrder's step order is the cap-burn contract; do not reorder"
+
+
+def test_throttle_runs_immediately_after_authorization() -> None:
+    pipeline = _pipeline(MUTATION_RESOLVERS, "public_create_order")
+    assert pipeline.index(THROTTLE) == pipeline.index(TOKEN_STEP2) + 1, (
+        "the abuse throttle must gate the pipeline right after authorization, "
+        "before any further reads do work for a flooding token"
+    )
+
+
+def test_ownership_confirmation_precedes_payment_and_email() -> None:
+    pipeline = _pipeline(MUTATION_RESOLVERS, "public_create_order")
+    assert pipeline.index(PROFILE) + 1 == pipeline.index(PROFILE_STEP2), (
+        "the strong ownership read must directly follow the GSI locator (#438 pair)"
+    )
+    assert pipeline.index(PROFILE_STEP2) < pipeline.index(PAYMENT), (
+        "buyer PII must not reach a stale owner id: the base-table confirmation must precede the payment-method read"
+    )
+    assert pipeline.index(PROFILE_STEP2) < pipeline.index(EMAIL), "the mailer must only ever see a confirmed owner id"
 
 
 def test_payment_validation_precedes_the_cap_increment() -> None:

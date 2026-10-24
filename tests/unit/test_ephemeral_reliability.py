@@ -666,7 +666,10 @@ class TestImportEphemeralResources:
                 echo '{"graphqlApis": [{"name": "kernelworx-api-ue1-pr-999", "apiId": "api123"}]}'
                 ;;
               "appsync list-api-keys")
-                echo '{"apiKeys": [{"id": "key123", "description": "Public orders (campaign-scoped share tokens)"}]}'
+                # SEC-3 two-slot rotation model: recovery distinguishes the
+                # slots by their description tags and imports each existing
+                # one at its counted address.
+                echo '{"apiKeys": [{"id": "key123", "description": "Public orders slot A (campaign-scoped share tokens)"}, {"id": "key456", "description": "Public orders rotation slot B (campaign-scoped share tokens)"}]}'
                 ;;
               "appsync list-data-sources" | "appsync list-functions")
                 echo '{"dataSources": [], "functions": []}'
@@ -719,11 +722,15 @@ class TestImportEphemeralResources:
         assert "module.cognito.aws_iam_role_policy.lambda_cognito_admin" in calls
         assert "kernelworx-lambda-admin-exec-ue1-pr-999:cognito-admin" in calls
         assert "module.appsync.aws_iam_role_policy.appsync_logging" in calls
-        # The public-orders API key (#679 rev 7) is NOT covered by the dynamic
-        # AppSync discovery below (datasources/functions/resolvers only), so its
-        # import line in scripts/ephemeral-recover-common.sh is manual.
-        assert "module.appsync.aws_appsync_api_key.public_orders" in calls
-        assert "api123:key123" in calls, "the key import id must be <api_id>:<key_id>"
+        # The public-orders API keys (#679 rev 7, SEC-3 two-slot rotation) are
+        # NOT covered by the dynamic AppSync discovery below (datasources/
+        # functions/resolvers only), so their import lines in
+        # scripts/ephemeral-recover-common.sh are manual: slot A always (counted
+        # address) and slot B whenever it exists (rotation window).
+        assert "module.appsync.aws_appsync_api_key.public_orders[0]" in calls
+        assert "module.appsync.aws_appsync_api_key.public_orders_rotation[0]" in calls
+        assert "api123:key123" in calls, "the slot-A key import id must be <api_id>:<key_id>"
+        assert "api123:key456" in calls, "the rotation slot-B key must be imported too when it exists"
         assert "module.s3.aws_s3_bucket_versioning.static" in calls
         assert "module.s3.aws_s3_bucket_cors_configuration.exports" in calls
 
