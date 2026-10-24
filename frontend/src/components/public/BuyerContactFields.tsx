@@ -83,7 +83,12 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
         label="Street address"
         value={address.street}
         onChange={(event) => onAddressChange('street', event.target.value)}
-        helperText="Or fill in a full US address instead of a phone number: street, city, state and ZIP."
+        error={Boolean(errors.addressFields?.street)}
+        helperText={
+          errors.addressFields?.street ||
+          errors.address ||
+          'Or fill in a full US address instead of a phone number: street, city, state and ZIP.'
+        }
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 5 }}>
@@ -92,6 +97,8 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
         label="City"
         value={address.city}
         onChange={(event) => onAddressChange('city', event.target.value)}
+        error={Boolean(errors.addressFields?.city)}
+        helperText={errors.addressFields?.city}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 3 }}>
@@ -100,6 +107,8 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
         label="State"
         value={address.state}
         onChange={(event) => onAddressChange('state', event.target.value)}
+        error={Boolean(errors.addressFields?.state)}
+        helperText={errors.addressFields?.state}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 4 }}>
@@ -108,7 +117,8 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
         label="ZIP code"
         value={address.zipCode}
         onChange={(event) => onAddressChange('zipCode', event.target.value)}
-        helperText="5 or 9 digits."
+        error={Boolean(errors.addressFields?.zipCode)}
+        helperText={errors.addressFields?.zipCode || '5 or 9 digits.'}
       />
     </Grid>
   </Grid>

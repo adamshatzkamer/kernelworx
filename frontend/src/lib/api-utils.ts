@@ -187,6 +187,87 @@ export function isValidationError(error: ApolloLikeError | unknown): boolean {
 }
 
 /**
+ * Public checkout error mapping (SEC-11).
+ *
+ * The public order pages are anonymous: they carry no session, and the person
+ * reading the message may be an attacker probing the link. Two failures have to
+ * be closed at once — an unmapped code falling back to the raw server message
+ * (which can quote a DynamoDB or AWS SDK fault verbatim), and a crafted
+ * `INVALID_INPUT` message being thrown away for a generic string, which is what
+ * makes the server's field-level contact rules useless to a buyer. So: the
+ * backend's own `INVALID_INPUT` wording is preserved (it is written by our
+ * resolvers, and re-checked for infrastructure leakage), every other code gets
+ * a curated buyer-facing sentence, and anything unrecognized gets the generic
+ * one. The raw message is never the default.
+ */
+
+/** Shown for any submission failure the public path cannot name safely. */
+export const PUBLIC_CHECKOUT_GENERIC_ERROR = 'Something went wrong while placing your order. Please try again.';
+
+/** Shown when the request never got a server answer. */
+export const PUBLIC_CHECKOUT_NETWORK_ERROR = 'We could not reach the server. Check your connection and try again.';
+
+/**
+ * Codes whose server message is a buyer-facing sentence the backend wrote on
+ * purpose. `VALIDATION_ERROR` is deliberately absent: it is emitted by input
+ * coercion layers, not by our resolvers, so its text is not ours to vouch for.
+ */
+const PUBLIC_PRESERVED_MESSAGE_CODES = new Set(['INVALID_INPUT']);
+
+/** Curated wording for the codes the public checkout path can legitimately hit. */
+const PUBLIC_CHECKOUT_ERROR_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'This order link is no longer available.',
+  CAMPAIGN_NOT_FOUND: 'This order link is no longer available.',
+  ORDER_NOT_FOUND: 'This order link is no longer available.',
+  FORBIDDEN: 'This order link is no longer available.',
+  UNAUTHORIZED: 'This order link is no longer available.',
+  UNAUTHENTICATED: 'This order link is no longer available.',
+  PUBLIC_ORDER_LIMIT_EXCEEDED: 'This campaign has reached its public order limit.',
+  RESOURCE_BUSY: 'The order could not be placed right now. Please try again.',
+  CONFLICT: 'The order could not be placed right now. Please try again.',
+  ConflictException: 'The order could not be placed right now. Please try again.',
+  SERVICE_UNAVAILABLE: 'The service is temporarily unavailable. Please try again later.',
+};
+
+/**
+ * Wording that betrays the stack rather than the order: SDK exception names,
+ * service endpoints, throttling verdicts. Even a code we preserve the message
+ * for can carry one of these if a fault was re-wrapped as `INVALID_INPUT`.
+ */
+const INFRASTRUCTURE_MESSAGE_PATTERN =
+  /dynamodb|conditionalcheck|resourceinuse|throttl|accessdenied|amazonaws|\.amazon\.|internal server error|an error occurred \(|cannot deserialize|unmarshalling|stack trace|traceback/i;
+
+/** Whether a server message is safe to show a buyer verbatim. */
+export function isBuyerFacingMessage(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.length > 500) return false;
+  return !INFRASTRUCTURE_MESSAGE_PATTERN.test(trimmed);
+}
+
+/** Whether the failure is a transport one — no server answer at all. */
+function isNetworkFailure(error: unknown): boolean {
+  if (isApolloLikeError(error) && error.networkError) return true;
+  return error instanceof Error && /network request failed|failed to fetch/i.test(error.message);
+}
+
+/** Whether this error's own wording is the one to show. */
+function preserveServerMessage(code: string | undefined, message: string): boolean {
+  return code !== undefined && PUBLIC_PRESERVED_MESSAGE_CODES.has(code) && isBuyerFacingMessage(message);
+}
+
+/**
+ * Map a public-checkout submission failure to a message safe to render for an
+ * anonymous buyer.
+ */
+export function mapPublicSubmissionErrorMessage(error: unknown): string {
+  if (isNetworkFailure(error)) return PUBLIC_CHECKOUT_NETWORK_ERROR;
+  const code = getErrorCode(error);
+  const message = getErrorMessage(error, '');
+  if (preserveServerMessage(code, message)) return message.trim();
+  return (code !== undefined ? PUBLIC_CHECKOUT_ERROR_MESSAGES[code] : undefined) ?? PUBLIC_CHECKOUT_GENERIC_ERROR;
+}
+
+/**
  * Format a date string for display.
  * Returns empty string for null/undefined values.
  *
@@ -230,6 +311,28 @@ export function formatDate(dateString: string | null | undefined, format: 'short
 }
 
 /**
+ * Currency formatters are built once per currency and reused: `Intl.NumberFormat`
+ * construction is comparatively expensive, and list rendering calls the
+ * formatter per row per render.
+ */
+const currencyFormatters = new Map<string, Intl.NumberFormat>();
+
+function currencyFormatterFor(currency: string): Intl.NumberFormat {
+  const existing = currencyFormatters.get(currency);
+  if (existing) {
+    return existing;
+  }
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  currencyFormatters.set(currency, formatter);
+  return formatter;
+}
+
+/**
  * Format a currency value for display.
  *
  * @param amount - Numeric amount
@@ -241,12 +344,7 @@ export function formatCurrency(amount: number | null | undefined, currency = 'US
     return '$0.00';
   }
 
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return currencyFormatterFor(currency).format(amount);
 }
 
 /**

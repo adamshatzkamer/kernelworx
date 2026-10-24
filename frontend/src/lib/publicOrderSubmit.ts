@@ -10,7 +10,7 @@
  */
 
 import type { GqlPublicCreateOrderInput } from '../types/graphql-generated';
-import { addressStarted, type PublicOrderFormState } from './publicOrderValidation';
+import { addressStarted, MAX_PUBLIC_QUANTITY, type PublicOrderFormState } from './publicOrderValidation';
 import type { PublicOfferView } from '../components/public/publicOrderTypes';
 import type { PublicOrderSubmittedSummary } from '../components/public/PublicOrderSuccess';
 
@@ -24,21 +24,16 @@ export const BUYER_ACKNOWLEDGEMENTS_ACCEPTED = true;
 /**
  * Build the GraphQL input for publicCreateOrder.
  *
- * @param profileId   The profile ID is *not* used in the input; it is kept in the
- *                    argument list only to maintain compatibility with the
- *                    hook signature. The server expects the campaignId and token
- *                    from the offer, not the profileId.
  * @param token       The share token from the offer.
  * @param campaignId  The campaign ID from the offer.
  * @param form        The form state.
  */
 export function buildPublicOrderInput(args: {
-  profileId: string; // unused, kept for hook compatibility
   token: string;
   campaignId: string;
   form: PublicOrderFormState;
 }): GqlPublicCreateOrderInput {
-  const { token, campaignId, form } = args; // profileId is unused
+  const { token, campaignId, form } = args;
   const input: GqlPublicCreateOrderInput = {
     campaignId,
     token,
@@ -46,7 +41,7 @@ export function buildPublicOrderInput(args: {
     firstName: form.firstName.trim(),
     lastName: form.lastName.trim(),
     paymentMethod: form.paymentMethod,
-    lineItems: buildPublicLineItems(form),
+    lineItems: submittedLineItems(form),
   };
 
   const phone = form.phone.trim();
@@ -72,31 +67,59 @@ export function buildPublicOrderInput(args: {
 }
 
 /**
- * Build the line items array for the input.
+ * The line items the buyer actually submitted: a quantity counts only when it
+ * is a whole number inside the picker's range, so an out-of-range value can
+ * never reach the server, and the on-screen estimate and the success summary
+ * are computed from exactly this set.
  */
-function buildPublicLineItems(form: PublicOrderFormState): {
-  productId: string;
-  quantity: number;
-}[] {
+export function submittedLineItems(form: PublicOrderFormState): { productId: string; quantity: number }[] {
   return Object.entries(form.lineItems)
-    .filter((entry) => entry[1] > 0)
-    .map(([productId, quantity]) => ({
-      productId,
-      quantity,
-    }));
+    .filter(([productId, quantity]) => productId.length > 0 && quantityIsValid(quantity))
+    .map(([productId, quantity]) => ({ productId, quantity }));
+}
+
+function quantityIsValid(quantity: number): boolean {
+  return Number.isInteger(quantity) && quantity > 0 && quantity <= MAX_PUBLIC_QUANTITY;
 }
 
 /**
  * Build the success-screen summary from the form and the offer.
+ *
+ * The item rows are the submitted quantities joined against the offer's
+ * products — the same products the buyer picked from, at the prices the offer
+ * showed them. A product id the offer no longer carries is dropped rather than
+ * shown with a made-up name. The payment method is the one the buyer selected;
+ * `storedPaymentMethod` (the value the create mutation echoed back) wins when
+ * the response carries one, because that is what the order actually stored.
  */
-export function buildSubmittedSummary(form: PublicOrderFormState, offer: PublicOfferView): PublicOrderSubmittedSummary {
-  const paymentMethod = offer.paymentMethods[0]?.name ?? form.paymentMethod;
+export function buildSubmittedSummary(
+  form: PublicOrderFormState,
+  offer: PublicOfferView,
+  storedPaymentMethod?: string | null,
+): PublicOrderSubmittedSummary {
+  const productsById = new Map(offer.products.map((product) => [product.productId, product]));
+  const lineItems = submittedLineItems(form).flatMap((item) => {
+    const product = productsById.get(item.productId);
+    if (!product) {
+      return [];
+    }
+    return [
+      {
+        productId: item.productId,
+        productName: product.productName,
+        quantity: item.quantity,
+        pricePerUnit: product.price,
+        subtotal: product.price * item.quantity,
+      },
+    ];
+  });
+
   return {
     firstName: form.firstName.trim(),
     lastName: form.lastName.trim(),
-    paymentMethod,
+    paymentMethod: storedPaymentMethod?.trim() || form.paymentMethod,
     phone: form.phone.trim() || undefined,
     email: form.email.trim() || undefined,
-    lineItems: [],
+    lineItems,
   };
 }
