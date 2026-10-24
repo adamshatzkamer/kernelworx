@@ -113,6 +113,8 @@ variable "github_token" {
 
 variable "alert_email" {
   type        = string
+  # INTERIM ops alias (known): no checked-in or CI-supplied tfvars path exists
+  # for prod env vars, so this default stands. TODO: move to a team alias.
   default     = "dave@repeatersolutions.com"
   description = "Ops address the CloudWatch alarms notify (same address the bootstrap cost budgets notify). The SNS email subscription needs a one-time confirmation."
 }

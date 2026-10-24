@@ -152,8 +152,8 @@ output "identity_arn" {
 output "template_arns" {
   description = "ARNs of the order-confirmation templates (for the IAM send grant)"
   value = var.create ? [
-    "arn:${data.aws_partition.current.partition}:ses:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:template/${local.order_template_name}",
-    "arn:${data.aws_partition.current.partition}:ses:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:template/${local.order_seller_template_name}",
+    "arn:${data.aws_partition.current.partition}:ses:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:template/${local.order_template_name}",
+    "arn:${data.aws_partition.current.partition}:ses:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:template/${local.order_seller_template_name}",
   ] : []
 }
 
