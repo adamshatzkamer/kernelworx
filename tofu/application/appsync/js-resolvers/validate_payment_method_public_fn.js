@@ -34,13 +34,20 @@ export function request(ctx) {
             util.error('Catalog is not available for this campaign', 'INVALID_INPUT');
             return null;
         }
-        const productsMap = {};
+        const productsMap = Object.create(null);
         for (const product of catalog.products || []) {
-            productsMap[product.productId] = product;
+            if (product && typeof product.productId === 'string') {
+                productsMap[product.productId] = product;
+            }
         }
         for (const lineItem of mapped.lineItems || []) {
-            if (!productsMap[lineItem.productId]) {
+            if (!Object.hasOwn(productsMap, lineItem.productId)) {
                 util.error('Product ' + lineItem.productId + ' not found in catalog', 'INVALID_INPUT');
+                return null;
+            }
+            const product = productsMap[lineItem.productId];
+            if (!product || typeof product.price !== 'number' || !isFinite(product.price) || product.price < 0) {
+                util.error('Product ' + lineItem.productId + ' has no valid price', 'INVALID_INPUT');
                 return null;
             }
         }
@@ -95,6 +102,10 @@ export function response(ctx) {
     if (!found) {
         util.error(PUBLIC_METHOD_UNAVAILABLE, 'INVALID_INPUT');
         return null;
+    }
+
+    if (ctx.stash) {
+        ctx.stash.sellerEmail = typeof (account && account.email) === 'string' ? account.email : '';
     }
 
     return ctx.prev ? ctx.prev.result : null;

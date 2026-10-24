@@ -201,7 +201,11 @@ def _send_seller_email(client: Any, config: Dict[str, str], event: Dict[str, Any
     outcomes, never order failures.
     """
     order_id = str(order.get("orderId") or "")
-    seller_email = _seller_email_address(event.get("ownerAccountId"))
+    seller_email = event.get("sellerEmail")
+    if not (isinstance(seller_email, str) and seller_email.strip() != ""):
+        seller_email = _seller_email_address(event.get("ownerAccountId"))
+    else:
+        seller_email = seller_email.strip()
     if seller_email is None:
         logger.warning("Public order seller email skipped: owner account has no email", order_id=order_id)
         return False

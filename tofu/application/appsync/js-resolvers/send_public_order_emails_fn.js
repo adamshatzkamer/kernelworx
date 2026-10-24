@@ -45,7 +45,7 @@ export function request(ctx) {
             // contact, receiptToken. The mailer never re-reads orders (spec
             // §5.3 step 8 keeps the email path free of orders access).
             order: orderItem,
-            sellerName: typeof stash.sellerName === 'string' ? stash.sellerName : '',
+            sellerEmail: typeof stash.sellerEmail === 'string' ? stash.sellerEmail : '',
             ownerAccountId: typeof stash.ownerAccountId === 'string' ? stash.ownerAccountId : '',
             campaignName: typeof campaign.campaignName === 'string' ? campaign.campaignName : '',
             // Site-relative; the handler absolutizes it from SITE_URL for the

@@ -1,6 +1,6 @@
 import { util } from '@aws-appsync/utils';
-import { stripIdPrefix } from './lib/ids.js';
 import { enrichLineItems } from './lib/line_items.js';
+import { buildOrderKey } from './lib/order_keys.js';
 import { composePublicOrderReceipt } from './lib/public_order.js';
 
 // Step 7 of the publicCreateOrder pipeline (#679 write slice, spec §5.3):
@@ -55,8 +55,7 @@ export function request(ctx) {
     // per-item tombstone; soft deletion is catalog-level only).
     const enriched = enrichLineItems(mapped.lineItems, catalog);
 
-    const campaignIdWithoutPrefix = stripIdPrefix(campaignId, 'CAMPAIGN#');
-    const orderId = 'ORDER#' + campaignIdWithoutPrefix + '#' + util.autoId();
+    const orderId = buildOrderKey(campaignId, util.autoId());
     const now = util.time.nowISO8601();
 
     const orderItem = {

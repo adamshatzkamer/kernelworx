@@ -1,7 +1,8 @@
 import { util } from '@aws-appsync/utils';
 
 // Root resolver of the publicCreateOrder pipeline (#679 write slice, campaign-keyed
-// rework). Pipeline order (spec §5.3, with the email step deferred to the SES slice):
+// rework). Pipeline order (spec §5.3): the email send runs synchronously inside
+// checkout as a best-effort step between write and this root.
 //
 //   validate_public_token              (CampaignsDS, campaignId-index locator)
 //   validate_public_token_step2        (CampaignsDS, consistent read + the token,

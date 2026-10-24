@@ -82,6 +82,12 @@ export function stashedCampaignId(ctx) {
         : null;
 }
 
+// Bounds for the stored allowedPaymentMethods list (SEC-14): the whole map lives
+// on the campaign item, which must stay under DynamoDB's 400KB ceiling. Cap the
+// method count and the per-method label length.
+export const MAX_ALLOWED_PAYMENT_METHODS = 25;
+export const MAX_PAYMENT_METHOD_NAME_LENGTH = 100;
+
 // Effective allowed-method list, or null when neither the request nor the
 // stored blob supplies one. An explicit null is INVALID_INPUT; a provided list
 // must hold non-empty strings.
@@ -108,9 +114,13 @@ export function resolveAllowedPaymentMethods(ctx) {
     if (list === null) {
         return null;
     }
+    if (list.length > MAX_ALLOWED_PAYMENT_METHODS) {
+        util.error('allowedPaymentMethods must contain at most ' + MAX_ALLOWED_PAYMENT_METHODS + ' methods', 'INVALID_INPUT');
+        return null;
+    }
     for (const name of list) {
-        if (typeof name !== 'string' || name.trim() === '') {
-            util.error('allowedPaymentMethods must be a list of non-empty names', 'INVALID_INPUT');
+        if (typeof name !== 'string' || name.trim() === '' || name.trim().length > MAX_PAYMENT_METHOD_NAME_LENGTH) {
+            util.error('allowedPaymentMethods must be a list of non-empty names of at most ' + MAX_PAYMENT_METHOD_NAME_LENGTH + ' characters', 'INVALID_INPUT');
             return null;
         }
     }
@@ -173,3 +183,30 @@ export function composePublicOrderSettings(campaign, blob) {
         ackVersion: typeof (settings && settings.ackVersion) === 'number' ? settings.ackVersion : null
     };
 }
+
+// Shared base-table GetItem for the campaign public-order settings surface
+// (KW-784 DRY-7): the strongly consistent read keyed by the located
+// profileId + campaignId that both the settings lookup and the settings write
+// validation step need. Returns the request object, calling util.error
+// (NOT_FOUND) and returning undefined when pipeline state is missing - identical
+// to the inlined copies it replaces, so callers keep their response handling.
+export function getCampaignPublicSettings(ctx) {
+    const profileId = stashedProfileId(ctx);
+    const campaignId = stashedCampaignId(ctx);
+
+    if (!profileId || !campaignId) {
+        // The locator and the owner gate both proved a campaign exists; reaching
+        // here means the pipeline was rewired, not that the caller is wrong.
+        util.error('Campaign not found', 'NOT_FOUND');
+        return;
+    }
+
+    return {
+        operation: 'GetItem',
+        key: util.dynamodb.toMapValues({ profileId: profileId, campaignId: campaignId }),
+        consistentRead: true
+    };
+}
+
+// Alias retained for callers/tests using the shorter name (DRY-7).
+export const getPublicSettings = getCampaignPublicSettings;

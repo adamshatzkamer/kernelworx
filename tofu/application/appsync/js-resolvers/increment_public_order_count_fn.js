@@ -34,7 +34,7 @@ export function request(ctx) {
 
     if (!profileId || !campaignId) {
         // Wiring fault: steps 1-3 stash both before this step runs.
-        util.error('This campaign has reached its public order limit', 'PUBLIC_ORDER_LIMIT_EXCEEDED');
+        util.error('Pipeline state missing', 'INTERNAL_ERROR');
         return null;
     }
 
