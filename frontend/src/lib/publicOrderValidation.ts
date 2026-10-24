@@ -17,6 +17,13 @@ export const MAX_PUBLIC_QUANTITY = 99;
 // Maximum length for buyer notes
 export const MAX_BUYER_NOTES_LENGTH = 500;
 
+// Caps mirrored from the write pipeline's own constants in lib/public_order.js.
+// The name and notes inputs already carry matching `maxLength` attributes, so
+// only the email and address caps need a validator: without them a buyer types
+// an address the server will refuse and gets a bare `INVALID_INPUT` back.
+export const MAX_EMAIL_LENGTH = 254;
+export const MAX_ADDRESS_FIELD_LENGTH = 400;
+
 /**
  * Check if an address has been started (at least one field filled).
  */
@@ -106,6 +113,20 @@ export function zipCodeIsValid(raw: string): boolean {
 const ADDRESS_FIELDS: (keyof PublicOrderAddressForm)[] = ['street', 'city', 'state', 'zipCode'];
 
 /**
+ * Whether a typed email has the shape the server accepts: exactly one `@`, a
+ * non-empty local part, and a dot-separated domain of at least two non-empty
+ * labels. Mirrors `validateEmail` in `lib/public_order.js`.
+ */
+export function emailShapeIsValid(raw: string): boolean {
+  const parts = raw.trim().split('@');
+  if (parts.length !== 2 || parts[0] === '') {
+    return false;
+  }
+  const domainLabels = parts[1].split('.');
+  return domainLabels.length >= 2 && domainLabels.every((label) => label !== '');
+}
+
+/**
  * An address that has been started at all must be complete: all four fields,
  * and a US ZIP. Recorded both as the aggregate `address` error (the server's
  * wording) and per field, so the form can mark the box actually at fault.
@@ -124,6 +145,45 @@ function validateAddressCompleteness(form: PublicOrderFormState, errors: PublicO
   if (!zipCodeIsValid(form.address.zipCode)) {
     errors.address = 'ZIP code must be 5 or 9 digits';
     errors.addressFields = { zipCode: 'ZIP code must be 5 or 9 digits' };
+    return;
+  }
+
+  // The server checks the per-field cap only once the address is complete, so
+  // the same ordering here keeps the two error surfaces agreeing.
+  const overlong = ADDRESS_FIELDS.filter((field) => form.address[field].trim().length > MAX_ADDRESS_FIELD_LENGTH);
+  if (overlong.length > 0) {
+    const message = `Address fields must be at most ${MAX_ADDRESS_FIELD_LENGTH} characters`;
+    errors.address = message;
+    errors.addressFields = overlong.reduce((acc, field) => {
+      acc[field] = message;
+      return acc;
+    }, {} as PublicOrderAddressFieldErrors);
+  }
+}
+
+/**
+ * The email is optional, but when present it must satisfy the server's own
+ * length cap and shape. A malformed address otherwise reaches the AWSEmail
+ * scalar and comes back as an unexplained `INVALID_INPUT`.
+ */
+function validateOptionalEmail(form: PublicOrderFormState, errors: PublicOrderFieldErrors): void {
+  const email = form.email.trim();
+  if (!email) {
+    return;
+  }
+  if (email.length > MAX_EMAIL_LENGTH) {
+    errors.email = `Email address must be at most ${MAX_EMAIL_LENGTH} characters`;
+    return;
+  }
+  if (!emailShapeIsValid(email)) {
+    errors.email = 'Email address is not valid';
+  }
+}
+
+/** A phone the buyer actually typed must reduce to a 10-digit US number. */
+function validateProvidedPhone(form: PublicOrderFormState, errors: PublicOrderFieldErrors): void {
+  if (normalizeUsPhone(form.phone) === null) {
+    errors.phone = 'Phone number must be a valid 10-digit US number';
   }
 }
 
@@ -139,8 +199,8 @@ function validateContactRequirement(form: PublicOrderFormState, errors: PublicOr
     errors.address = 'Phone or a complete address is required';
     return;
   }
-  if (hasPhone && normalizeUsPhone(form.phone) === null) {
-    errors.phone = 'Phone number must be a valid 10-digit US number';
+  if (hasPhone) {
+    validateProvidedPhone(form, errors);
   }
   if (hasAddress) {
     validateAddressCompleteness(form, errors);
@@ -189,6 +249,7 @@ export function validatePublicOrderForm(form: PublicOrderFormState): {
     errors.lastName = 'Last name is required';
   }
   validateContactRequirement(form, errors);
+  validateOptionalEmail(form, errors);
   if (!hasPositiveLineItems(form.lineItems)) {
     errors.lineItems = 'At least one product with quantity greater than zero is required';
   }
