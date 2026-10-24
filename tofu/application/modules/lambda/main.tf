@@ -213,6 +213,13 @@ locals {
       timeout     = 15
       memory_size = 256
       extra_env   = local.ses_env
+      # SEC-6: an order flood reaches the mailer as a flood of Lambda invokes,
+      # each holding an account-concurrency slot for up to the 15s timeout.
+      # Capping this function bounds that drain; the email step is best-effort
+      # (invoke throttles surface as a swallowed email failure on the order,
+      # never a lost order), and 5 concurrent sends is far above legitimate
+      # buyer traffic for this surface. Chosen value: 5.
+      reserved_concurrent_executions = 5
     }
   }
 
@@ -373,6 +380,9 @@ resource "aws_lambda_function" "functions" {
   source_code_hash = data.archive_file.lambda_payload.output_base64sha256
 
   layers = [aws_lambda_layer_version.shared.arn]
+
+  # Per-function override (SEC-6): only the public-orders mailer sets this.
+  reserved_concurrent_executions = lookup(each.value, "reserved_concurrent_executions", null)
 
   environment {
     variables = merge(local.common_env, lookup(each.value, "extra_env", {}))

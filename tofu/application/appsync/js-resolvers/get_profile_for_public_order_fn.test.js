@@ -31,23 +31,18 @@ describe('get_profile_for_public_order response', () => {
         );
     });
 
-    it('stashes the owner account and seller name from a single projection', () => {
+    it('stashes the candidate owner account from a single projection (sellerName comes from the step-2 consistent read)', () => {
         const stash = {};
-        const res = response({ result: { items: [{ ownerAccountId: 'ACCOUNT#o1', sellerName: 'My Shop' }] }, stash });
+        const res = response({ result: { items: [{ ownerAccountId: 'ACCOUNT#o1', sellerName: 'Stale GSI Name' }] }, stash });
         assert.deepStrictEqual(res, { located: true });
         assert.strictEqual(stash.ownerAccountId, 'ACCOUNT#o1');
-        assert.strictEqual(stash.sellerName, 'My Shop');
+        // The GSI projection is eventually consistent: the seller display name
+        // must NOT be trusted from it (SEC-4). Step 2 re-reads it strongly.
+        assert.strictEqual('sellerName' in stash, false);
     });
 
     it('refuses a projection whose owner account is missing or empty', () => {
         assert.throws(() => response({ result: { items: [{ sellerName: 'S' }] } }), /NOT_FOUND: Order could not be placed/);
         assert.throws(() => response({ result: { items: [{ ownerAccountId: '' }] } }), /NOT_FOUND: Order could not be placed/);
-    });
-
-    it('treats a non-string seller name as the empty display name', () => {
-        const stash = {};
-        response({ result: { items: [{ ownerAccountId: 'ACCOUNT#o1' }] }, stash });
-        assert.strictEqual(stash.ownerAccountId, 'ACCOUNT#o1');
-        assert.strictEqual(stash.sellerName, '');
     });
 });

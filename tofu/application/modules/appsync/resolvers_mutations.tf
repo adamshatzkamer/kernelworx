@@ -876,13 +876,18 @@ resource "aws_appsync_resolver" "admin_update_campaign_shared_code" {
 # pipeline on the DynamoDB datasources plus one Lambda invoke. Order:
 #   1 validate_public_token            (CampaignsDS, campaignId-index locator)
 #   2 validate_public_token_step2      (CampaignsDS, strong read + all checks)
-#   3 get_profile_for_public_order    (ProfilesDS, owner + seller name)
-#   4 get_catalog                     (CatalogsDS, reused as-is)
-#   5 validate_payment_method_public  (AccountsDS, no-oracle clone)
-#   6 increment_public_order_count    (CampaignsDS, the cap CONDITION)
-#   7 create_public_order             (OrdersDS, the PutItem + receipt mint)
-#   8 send_public_order_emails        (PublicOrdersDS, best-effort; failures
-#                                     are swallowed so email never fails the
+#   3 throttle_public_order_create     (PublicOrderThrottlesDS, per-token
+#                                       fixed-window abuse guard, SEC-6)
+#   4 get_profile_for_public_order     (ProfilesDS, GSI locator only)
+#   5 get_profile_for_public_order_step2 (ProfilesDS, strong ownership
+#                                       confirmation; fail closed on a stale
+#                                       transfer-lag projection, SEC-4)
+#   6 get_catalog                     (CatalogsDS, reused as-is)
+#   7 validate_payment_method_public  (AccountsDS, no-oracle clone)
+#   8 increment_public_order_count    (CampaignsDS, the cap CONDITION)
+#   9 create_public_order             (OrdersDS, the PutItem + receipt mint)
+#  10 send_public_order_emails        (PublicOrdersDS, best-effort; failures
+#                                       are swallowed so email never fails the
 #                                     committed order)
 resource "aws_appsync_resolver" "public_create_order" {
   api_id = aws_appsync_graphql_api.main.id
@@ -896,7 +901,13 @@ resource "aws_appsync_resolver" "public_create_order" {
       # function id only once (#438).
       aws_appsync_function.validate_public_token.function_id,
       aws_appsync_function.validate_public_token_step2.function_id,
+      # SEC-6: the throttle runs immediately after authorization, before any
+      # further reads, so a flooding token does no extra work per request.
+      aws_appsync_function.throttle_public_order_create.function_id,
+      # SEC-4: the GSI locator and the strong ownership confirmation are two
+      # functions; the owner id is not trusted until step 5.
       aws_appsync_function.get_profile_for_public_order.function_id,
+      aws_appsync_function.get_profile_for_public_order_step2.function_id,
       # CatalogsDS: reused as-is; reads ctx.stash.catalogId stashed in step 2.
       aws_appsync_function.get_catalog.function_id,
       aws_appsync_function.validate_payment_method_public.function_id,

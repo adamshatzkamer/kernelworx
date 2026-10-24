@@ -2,22 +2,22 @@ import { util } from '@aws-appsync/utils';
 import { PUBLIC_ORDER_UNAVAILABLE } from './lib/public_order.js';
 
 // Step 3 of the publicCreateOrder pipeline (#679 write slice, spec §5.3):
-// fetch the profile for the owner account id and the seller display name.
+// LOCATE the profile on the profileId-index GSI. The GSI is a locator only,
+// never the source of the owner account id: its projection is eventually
+// consistent, and during a profile-ownership transfer the deleted old-owner row
+// can remain projected (or be the ONLY projection) for seconds. Trusting it
+// would forward the stale ownerAccountId to the payment-method read and the
+// mailer Lambda, emailing buyer PII (name, email, phone, address, items) to the
+// FORMER owner. Step 4 (get_profile_for_public_order_step2_fn.js) therefore
+// re-reads the profile from the BASE table with a strongly consistent GetItem
+// keyed by the located owner before anything else touches the owner id - the
+// same confirm-ownership pattern public_orders_offer.py uses on the read path
+// (#545) and the same two-function shape the authenticated pipelines use
+// (fetch_profile + fetch_profile_step2, #438).
 //
-// Step 1-2 located and authorized the campaign; the campaign row carries the
-// profile's partition key but not its owner, so the owner account (the
-// payment-method account the write validates against) and the seller's display
-// name (denormalized into the order row in the create step) come from the
-// profile. The GSI is a locator only: a transfer window leaves both the old
-// and the new owner's row projected for a few seconds, and a second consistent
-// read per candidate buys nothing an immediate retry would not - so a second
-// projection is refused rather than guessed (the #438 hazard), and the buyer
-// gets the identical NOT_FOUND every other negative branch raises.
-//
-// A stale owner id or display name across a transfer window is the accepted
-// failure mode: the order is still written under the campaign's profile key,
-// and the write step's account read answers with the same enumeration-safe message
-// either way.
+// A second projection is a transfer window and is refused rather than guessed
+// (the #438 hazard), and the buyer gets the identical NOT_FOUND every other
+// negative branch raises.
 export function request(ctx) {
     const profileId = ctx.stash ? ctx.stash.profileId : null;
 
@@ -58,10 +58,10 @@ export function response(ctx) {
         return null;
     }
 
-    // The owner key the account read (step 5) keys off, and the display name
-    // the create step (step 7) denormalizes into the order row.
+    // Candidates only. Step 4's consistent base-table read decides whether this
+    // projection is still the owner of record and re-stashes the values the
+    // rest of the pipeline actually uses.
     ctx.stash.ownerAccountId = ownerAccountId;
-    ctx.stash.sellerName = typeof items[0].sellerName === 'string' ? items[0].sellerName : '';
 
     return { located: true };
 }

@@ -83,7 +83,7 @@ def test_alarms_module_exists_and_owns_every_alarm() -> None:
         assert (ALARMS_DIR / filename).is_file(), f"the alarms module is missing {filename}"
 
     alarms = _alarms_of_type("aws_cloudwatch_metric_alarm")
-    assert len(alarms) == 3, f"expected exactly three alarms, found {[a for a, _ in alarms]}"
+    assert len(alarms) == 5, f"expected exactly five alarms, found {[a for a, _ in alarms]}"
 
     # No alarm defined anywhere else in the application stack: one owning stack
     # is what the spec's "every alarm below is new precedent with an owning
@@ -234,6 +234,53 @@ def test_every_alarm_notifies_the_modules_own_ops_topic() -> None:
         assert "aws_sns_topic.ops_alerts" in str(actions), f"{label} must notify the ops alert topic"
 
 
+def test_public_abuse_metric_filters_watch_the_exact_resolver_markers() -> None:
+    """SEC-8: token mismatches and cap/throttle rejections answer HTTP 200, so
+    they never touch 4XXError. The filters below count the exact console.error
+    marker strings the APPSYNC_JS resolvers emit
+    (validate_public_token_step2_fn.js / increment_public_order_count_fn.js /
+    throttle_public_order_create_fn.js) in the AppSync resolver log group."""
+    filters = {label: body for label, body in _alarms_of_type("aws_cloudwatch_log_metric_filter")}
+    assert set(filters) == {"public_token_mismatch", "public_cap_rejected"}
+
+    token_filter = filters["public_token_mismatch"]
+    assert "PUBLIC_ORDER_TOKEN_MISMATCH" in str(token_filter["pattern"])
+    assert "appsync_api_id" in str(token_filter["log_group_name"]), (
+        "the filter must target the AppSync resolver log group (/aws/appsync/apis/<id>)"
+    )
+    cap_filter = filters["public_cap_rejected"]
+    assert "PUBLIC_ORDER_CAP_REJECTED" in str(cap_filter["pattern"])
+
+    for label, body in filters.items():
+        transform = body["metric_transformation"][0]
+        assert transform["namespace"] == "Kernelworx/PublicOrders"
+        assert transform["value"] == "1"
+
+
+def test_public_abuse_alarms_use_the_filter_metrics() -> None:
+    alarms = {label: body for label, body in _alarms_of_type("aws_cloudwatch_metric_alarm")}
+    for label, metric in (
+        ("public_token_mismatch", "PublicOrderTokenMismatch"),
+        ("public_cap_rejected", "PublicOrderCapRejected"),
+    ):
+        body = alarms[label]
+        assert body["namespace"] == "Kernelworx/PublicOrders"
+        assert body["metric_name"] == metric
+        assert body["statistic"] == "Sum"
+        assert body["treat_missing_data"] == "notBreaching", (
+            "an idle environment publishes no abuse markers; missing data must not alarm"
+        )
+        assert "public_abuse_period_seconds" in str(body["period"])
+        assert "aws_sns_topic.ops_alerts" in str(body["alarm_actions"]), (
+            "SEC-2/SEC-8 together: the abuse alarms are only useful because the ops "
+            "topic now actually delivers (cloudwatch publish grant, no AWS-managed key)"
+        )
+
+    defaults = _variable_defaults()
+    assert float(defaults["public_token_mismatch_threshold"]) <= 20
+    assert float(defaults["public_cap_rejection_threshold"]) <= 10
+
+
 def test_ops_topic_notifies_the_environment_alert_email() -> None:
     subscriptions = _alarms_of_type("aws_sns_topic_subscription")
     assert len(subscriptions) == 1
@@ -243,6 +290,57 @@ def test_ops_topic_notifies_the_environment_alert_email() -> None:
 
     topic_policies = _alarms_of_type("aws_sns_topic_policy")
     assert topic_policies, "the ops topic needs a policy: EventBridge must be allowed to publish"
+
+
+def test_ops_topic_allows_cloudwatch_alarms_to_publish() -> None:
+    """SEC-2: the topic was inert - the policy granted SNS:Publish only to
+    events.amazonaws.com, and the AWS-managed KMS key (alias/aws/sns) cannot be
+    published to by CloudWatch alarms at all. Without this statement every
+    alarm delivery fails silently with AccessDenied."""
+    doc = _alarms_doc()
+    data_sources: Dict[str, Any] = {}
+    for entry in doc.get("data", []):
+        blocks = entry.get("aws_iam_policy_document", [])
+        if isinstance(blocks, dict):
+            blocks = [blocks]
+        for block in blocks:
+            data_sources.update(block)
+    assert "ops_alerts" in data_sources
+    statements = data_sources["ops_alerts"].get("statement", [])
+    if isinstance(statements, dict):
+        statements = [statements]
+
+    cloudwatch_statements = [
+        s
+        for s in statements
+        if "cloudwatch.amazonaws.com" in str(s.get("principals")) and "SNS:Publish" in str(s.get("actions"))
+    ]
+    assert cloudwatch_statements, (
+        "the ops topic policy must allow the cloudwatch.amazonaws.com service "
+        "principal to SNS:Publish - alarm actions publish as that principal"
+    )
+    statement = cloudwatch_statements[0]
+    conditions = str(statement.get("condition"))
+    assert "aws:SourceAccount" in conditions, (
+        "the CloudWatch publish grant must be scoped with aws:SourceAccount "
+        "(the publisher's account) per the AWS SNS/CloudWatch docs"
+    )
+    assert "aws:SourceArn" in conditions and "cloudwatch" in conditions and "alarm" in conditions, (
+        "the CloudWatch publish grant must be scoped with aws:SourceArn into the account's own alarm namespace"
+    )
+
+
+def test_ops_topic_is_unencrypted_by_design() -> None:
+    """SEC-2: CloudWatch alarms cannot publish to SNS topics encrypted with the
+    AWS-managed SNS key (alias/aws/sns), so the old setting made every alarm
+    fail silently regardless of policy. Unencrypted mirrors the house
+    KMS-avoidance posture (DynamoDB AWS-owned key, CloudWatch log groups)."""
+    topics = _alarms_of_type("aws_sns_topic")
+    assert len(topics) == 1
+    assert "kms_master_key_id" not in topics[0][1], (
+        "the ops topic must stay unencrypted: alarm payloads are alarm names, "
+        "and the AWS-managed SNS key would silently break alarm delivery again"
+    )
 
 
 def test_expiry_reminder_publishes_to_the_same_ops_topic() -> None:
@@ -267,6 +365,17 @@ def test_runbook_exists_and_names_the_pre_launch_gate() -> None:
     assert "kernelworx.app" in text
     assert "sandbox" in text
     assert "cutover" in text, "the renewal runbook must state the hard-cutover gap"
+    # SEC-3: the rotation sequence must be the add-new/deploy/remove-old
+    # procedure, not the old (broken) expires-edit premise.
+    assert "add-new" in text and "remove-old" in text, (
+        "the runbook must document the two-phase rotation (add-new -> deploy -> remove-old)"
+    )
+    assert "UNAUTHENTICATED" in text, (
+        "the runbook's verification steps must assert the old key answers UNAUTHENTICATED after removal"
+    )
+    # SEC-8: the abuse alarms the metric filters feed must be documented.
+    assert "public-token-mismatch" in text and "public-cap-rejected" in text
+    assert "PUBLIC_ORDER_TOKEN_MISMATCH" in text and "PUBLIC_ORDER_CAP_REJECTED" in text
     assert "expires" in text
     assert "CloudTrail" in text and "X-Ray" in text, "the non-goals must be stated"
 

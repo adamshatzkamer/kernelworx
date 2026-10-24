@@ -469,6 +469,22 @@ resource "aws_appsync_function" "validate_public_token_step2" {
   code = file("${local.js_resolvers_dir}/validate_public_token_step2_fn.js")
 }
 
+# Step 3: the per-share-token fixed-window throttle (SEC-6). A blind atomic
+# UpdateItem on a tiny item in the public-order-throttles table; the condition
+# is the rate bound. Rejects with the campaign-cap limit error shape.
+resource "aws_appsync_function" "throttle_public_order_create" {
+  api_id      = aws_appsync_graphql_api.main.id
+  data_source = aws_appsync_datasource.public_order_throttles.name
+  name        = "ThrottlePublicOrderCreateFn${local.env_suffix}"
+
+  runtime {
+    name            = "APPSYNC_JS"
+    runtime_version = "1.0.0"
+  }
+
+  code = file("${local.js_resolvers_dir}/throttle_public_order_create_fn.js")
+}
+
 # Step 6: the cap CONDITION (atomic ADD on the campaign). Runs before the write.
 resource "aws_appsync_function" "increment_public_order_count" {
   api_id      = aws_appsync_graphql_api.main.id

@@ -18,6 +18,14 @@ Pinned here:
   EXPLICIT `expires`. The provider defaults to 7 days, which would silently kill
   the public page a week after deploy; AWS caps a key at 365 days and requires
   the timestamp rounded down to the nearest hour.
+- SEC-3 rotation model: an expires-only edit does NOT rotate the key (the
+  provider updates `expires` in place via UpdateApiKey; the key material never
+  changes). Rotation is explicit and two-phase via
+  `var.public_orders_key_slots` ("a" steady state, "ab" add-new, "b"
+  remove-old) over two counted key resources, and the module output prefers
+  the rotation slot while it exists. The old contract (exactly one key
+  resource, no `count`) asserted the broken one-key premise and is replaced by
+  the assertions pinning the slot model.
 - The key value reaches every consumer: the module output, the `appsync_api_key`
   output in all three environments, `VITE_APPSYNC_API_KEY` in the deploy build
   env, and BOTH `TEST_`/`VITE_` exports in BOTH `ephemeral-env.sh` blocks
@@ -108,13 +116,21 @@ def _graphql_api() -> dict:
 
 
 def _api_key_resources() -> list[tuple[str, dict]]:
-    return _resources(_api_tf(), "aws_appsync_api_key")
+    return sorted(_resources(_api_tf(), "aws_appsync_api_key"))
 
 
 def _api_key_body() -> dict:
-    keys = _api_key_resources()
-    assert len(keys) == 1, "AppSync allows one key per API-key mode; declare exactly one resource"
-    return keys[0][1]
+    """The slot-A (established) key body."""
+    keys = {label: body for label, body in _api_key_resources()}
+    assert set(keys) == {API_KEY_RESOURCE_LABEL, "public_orders_rotation"}, (
+        "SEC-3: exactly the two rotation slots must exist (slot A + rotation slot B)"
+    )
+    return keys[API_KEY_RESOURCE_LABEL]
+
+
+def _rotation_key_body() -> dict:
+    keys = {label: body for label, body in _api_key_resources()}
+    return keys["public_orders_rotation"]
 
 
 def _load_generator():
@@ -166,30 +182,93 @@ def test_additional_provider_uses_the_provider_verified_shape():
 
 
 def test_key_is_a_separate_resource_with_a_description():
-    label, body = _api_key_resources()[0]
+    label, body = next((label, body) for label, body in _api_key_resources() if label == API_KEY_RESOURCE_LABEL)
     assert "api_id" in body, "the key must be attached to the API"
     assert "appsync_graphql_api.main" in str(body["api_id"])
     description = _norm(body.get("description", ""))
     assert description, "the key needs a description: it is the only human-facing handle in the console"
-    assert "count" not in body and "for_each" not in body, (
-        "the key must exist in every environment (dev, prod, and ephemeral) or the public surface is dead there"
-    )
+    # The "slot A"/"slot B" tags in the descriptions are what the ephemeral
+    # recovery import matches on (AppSync keys have no name).
+    assert "slot A" in description
     assert label == API_KEY_RESOURCE_LABEL, f"the key resource label is referenced by recovery imports: {label}"
 
 
 def test_expires_is_explicit_rfc3339_and_hour_rounded():
     """Never omit `expires`: the provider default is 7 days. AWS requires the
-    timestamp rounded DOWN to the nearest hour."""
-    body = _api_key_body()
-    assert "expires" in body, "aws_appsync_api_key must carry an explicit expires (provider default is 7 days)"
-    raw = body["expires"]
-    assert isinstance(raw, str), "expires must be a literal string, not a computed value"
-    value = _norm(raw)
-    assert "${" not in value and "timestamp(" not in value, (
-        "expires must be a fixed literal: a computed value (e.g. timestamp()) would replace the key on every plan"
+    timestamp rounded DOWN to the nearest hour. Both rotation slots carry the
+    same literal."""
+    for fetch in (_api_key_body, _rotation_key_body):
+        body = fetch()
+        assert "expires" in body, "aws_appsync_api_key must carry an explicit expires (provider default is 7 days)"
+        raw = body["expires"]
+        assert isinstance(raw, str), "expires must be a literal string, not a computed value"
+        value = _norm(raw)
+        assert "${" not in value and "timestamp(" not in value, (
+            "expires must be a fixed literal: a computed value (e.g. timestamp()) would replace the key on every plan"
+        )
+        parsed = datetime.strptime(value, EXPIRES_FORMAT)
+        assert parsed.minute == 0 and parsed.second == 0, f"expires must be rounded to the hour: {value}"
+
+
+def test_rotation_is_modeled_by_slots_and_an_expires_only_change_is_not_rotation():
+    """SEC-3: pin the rotation model and document why it exists.
+
+    The provider implements an `expires` change as an in-place UpdateApiKey:
+    the key id and the key material never change, so editing `expires` (the
+    old runbook's whole rotation procedure) renews lifetime but leaves a
+    leaked key VALID. A real rotation must create fresh key material and then
+    destroy the old key, which the two counted slot resources +
+    `var.public_orders_key_slots` make explicit: "ab" creates slot B (the
+    output, and therefore every bundle, cuts over to it while A stays valid),
+    "b" destroys slot A (actual revocation).
+    """
+    variables_doc = _load(API_TF.with_name("variables.tf"))
+    variables = {_norm(name) for entry in variables_doc.get("variable", []) for name in entry}
+    assert "public_orders_key_slots" in variables, (
+        "rotation must be explicit terraform state, not a runbook promise: "
+        "an expires-only edit updates the key in place and never revokes it"
     )
-    parsed = datetime.strptime(value, EXPIRES_FORMAT)
-    assert parsed.minute == 0 and parsed.second == 0, f"expires must be rounded to the hour: {value}"
+    slots = next(
+        next(iter(entry.values()))
+        for entry in variables_doc["variable"]
+        for name in entry
+        if _norm(name) == "public_orders_key_slots"
+    )
+    validation = str(slots.get("validation"))
+    for state in ("a", "ab", "b"):
+        assert f'"{state}"' in validation, f"rotation state {state!r} must be a validated value"
+
+    for label, body in _api_key_resources():
+        count = str(body.get("count", ""))
+        assert "public_orders_key_slots" in count, (
+            f"{label} must be gated on public_orders_key_slots so apply always yields the intended slot set"
+        )
+    slot_a = str(_api_key_body().get("count", ""))
+    slot_b = str(_rotation_key_body().get("count", ""))
+    assert '"a"' in slot_a and '"ab"' in slot_a, "slot A exists in states a and ab"
+    assert '"ab"' in slot_b and '"b"' in slot_b, "slot B exists in states ab and b"
+    assert "slot B" in _norm(_rotation_key_body().get("description", "")), (
+        "the recovery import matches the rotation slot by its description tag"
+    )
+
+
+def test_module_output_prefers_the_rotation_slot() -> None:
+    """While slot B exists (state "ab"/"b") the output - and therefore every
+    frontend bundle - must bake B; otherwise the add-new/deploy phase would
+    ship bundles still carrying the compromised key."""
+    module_outputs = _outputs(_load(APP_SYNC_OUTPUTS))
+    value = _norm(str(module_outputs["api_key"]["value"]))
+    assert value == "nonsensitive(local.active_public_orders_api_key)"
+    # The local itself must branch on the slots variable and prefer the
+    # rotation slot whenever it exists.
+    outputs_locals = _load(APP_SYNC_OUTPUTS).get("locals", [])
+    locals_body = outputs_locals[0] if outputs_locals else {}
+    active = str(locals_body.get("active_public_orders_api_key", locals_body.get('"active_public_orders_api_key"', "")))
+    assert "public_orders_rotation[0].key" in active and "public_orders_key_slots" in active, (
+        "the api_key output must prefer the rotation slot whenever it exists"
+    )
+    expires = str(module_outputs["api_key_expires"]["value"])
+    assert "public_orders_key_slots" in expires
 
 
 def test_expires_is_inside_the_service_cap_and_still_live():

@@ -223,10 +223,10 @@ resource "aws_appsync_function" "verify_public_settings_owner" {
   code = file("${local.js_resolvers_dir}/verify_public_settings_owner_fn.js")
 }
 
-# publicCreateOrder pipeline step 3 (#679): fetch the campaign's profile for
-# the owner account id (the payment-method account read) and the seller display
-# name (denormalized into the order row). The profileId-index GSI is a locator
-# only; a transfer-window second projection is refused, never guessed (#438).
+# publicCreateOrder pipeline step 3 (#679): LOCATE the campaign's profile on
+# the profileId-index GSI. The GSI is a locator only; a transfer-window second
+# projection is refused, never guessed (#438). The located ownerAccountId is a
+# candidate only - step 4 proves ownership against the base table.
 resource "aws_appsync_function" "get_profile_for_public_order" {
   api_id      = aws_appsync_graphql_api.main.id
   data_source = aws_appsync_datasource.profiles.name
@@ -238,4 +238,24 @@ resource "aws_appsync_function" "get_profile_for_public_order" {
   }
 
   code = file("${local.js_resolvers_dir}/get_profile_for_public_order_fn.js")
+}
+
+# Second invocation in the two-phase ownership confirmation (#545 shape, same
+# as fetch_profile + fetch_profile_step2). AppSync rejects duplicate function
+# IDs in a pipeline, so this is a second resource over the step-4 file: a
+# strongly consistent base-table GetItem on {ownerAccountId, profileId} that
+# fails closed when the step-3 GSI projection was stale (ownership-transfer
+# lag). Without it the deleted old-owner row's projected ownerAccountId is
+# forwarded to the mailer Lambda, emailing buyer PII to the former owner.
+resource "aws_appsync_function" "get_profile_for_public_order_step2" {
+  api_id      = aws_appsync_graphql_api.main.id
+  data_source = aws_appsync_datasource.profiles.name
+  name        = "GetProfileForPublicOrderStep2Fn${local.env_suffix}"
+
+  runtime {
+    name            = "APPSYNC_JS"
+    runtime_version = "1.0.0"
+  }
+
+  code = file("${local.js_resolvers_dir}/get_profile_for_public_order_step2_fn.js")
 }
