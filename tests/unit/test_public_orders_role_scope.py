@@ -170,12 +170,8 @@ def test_ses_policy_is_template_send_only_on_the_order_identity_and_templates() 
     assert statements[0].get("effect") == "Allow"
     assert _as_list(statements[0].get("actions")) == ["ses:SendTemplatedEmail"]
     assert _as_list(statements[0].get("resources")) == [
-        "${concat([var.ses_order_identity_arn], local.ses_account_identity_arns, var.ses_order_template_arns)}"
+        "${concat([var.ses_order_identity_arn], var.ses_order_template_arns)}"
     ]
-    # The recipient namespace is the account's own SES identities, not "*":
-    # SES authorizes the sandbox-verified recipient identity on every send.
-    locals_block = [b for b in load_hcl(IAM_MAIN).get("locals", []) if "ses_account_identity_arns" in b][0]
-    assert ":identity/*" in locals_block["ses_account_identity_arns"][0]
 
 
 def test_no_write_action_appears_in_either_public_orders_policy() -> None:

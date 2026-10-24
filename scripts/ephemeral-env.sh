@@ -137,6 +137,8 @@ case "$ACTION" in
     # AppSync rejects deleting pipeline functions or data sources that are still referenced
     # by a resolver. If the plan would destroy any AppSync functions or data sources, update
     # the affected resolver(s)/function(s) first so the full apply can delete them.
+    # Keep this target list in sync with .github/workflows/deploy-shared.yml
+    # (appsync-ensure-resolver-order step); a script-parity test asserts the set.
     # Targets cover all Lambda→JS migrations that removed a Lambda data source:
     #   create_order (pipeline fn set), validate_payment_method_appsync (data_source switch #299),
     #   create_seller_profile (#300), create_campaign (#301), update_my_account (#298),
@@ -148,6 +150,7 @@ case "$ACTION" in
       -t module.appsync.aws_appsync_function.validate_payment_method_appsync \
       -t module.appsync.aws_appsync_resolver.create_seller_profile \
       -t module.appsync.aws_appsync_resolver.create_campaign \
+      -t module.appsync.aws_appsync_resolver.public_create_order \
       -t module.appsync.aws_appsync_resolver.update_my_account \
       -t module.appsync.aws_appsync_resolver.list_my_shares \
       -t module.appsync.aws_appsync_resolver.list_shares_by_profile \

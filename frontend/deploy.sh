@@ -39,6 +39,7 @@ COGNITO_DOMAIN=$(tofu_output cognito_domain)
 S3_BUCKET=$(tofu_output static_assets_bucket)
 CF_DISTRIBUTION=$(tofu_output cloudfront_distribution_id)
 APPSYNC_API_URL=$(tofu_output appsync_api_url)
+APPSYNC_API_KEY=$(tofu_output appsync_api_key)
 SITE_URL=$(tofu_output site_url)
 
 # ============================================================
@@ -146,6 +147,7 @@ cat > .env.production << EOF
 # VITE_APPSYNC_ENDPOINT is intentionally unset: the deployed app calls
 # /graphql same-origin through the site's CloudFront distribution.
 VITE_APPSYNC_REGION=${REGION}
+VITE_APPSYNC_API_KEY=${APPSYNC_API_KEY}
 
 # Cognito User Pool
 VITE_COGNITO_USER_POOL_ID=${USER_POOL_ID}

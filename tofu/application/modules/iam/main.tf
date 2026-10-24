@@ -831,33 +831,18 @@ resource "aws_iam_role_policy" "lambda_public_orders_s3" {
 # prod-until-its-slice pass null and the whole statement is omitted, matching
 # the handler's "no SES env vars -> no client" branch.
 #
-# The recipient scope is load-bearing, not belt-and-braces (dev deploy proof,
-# 2026-10-17): SES evaluates ses:SendTemplatedEmail against EVERY identity in
-# the call, including the sandbox-verified RECIPIENT email-address identity —
-# an AccessDenied names arn:...:identity/<buyer-address> even though the buyer
-# never configured anything. Buyer addresses are arbitrary per order, so the
-# only stable scope is the account's own identity namespace (identity/*);
-# send-only, and in the sandbox the recipient set is still gated by
-# verification, so this grants no access to third parties' mail.
-data "aws_partition" "ses_recipients" {}
-data "aws_region" "ses_recipients" {}
-data "aws_caller_identity" "ses_recipients" {}
-
-locals {
-  ses_account_identity_arns = [
-    "arn:${data.aws_partition.ses_recipients.partition}:ses:${data.aws_region.ses_recipients.name}:${data.aws_caller_identity.ses_recipients.account_id}:identity/*"
-  ]
-}
-
+# SEC-9 (review): scoped to the environment's own sending identity and its two
+# namespaced templates only. Sandbox recipient verification happens before the
+# send and is gated by SES on the recipient side, not by this IAM resource;
+# production access removes the recipient-identity authorization need.
 data "aws_iam_policy_document" "lambda_public_orders_ses" {
   count = var.ses_order_emails_enabled ? 1 : 0
 
   statement {
     effect = "Allow"
     actions = ["ses:SendTemplatedEmail"]
-    # The sending identity is inside the account identity wildcard; it is
-    # listed explicitly so the send source stays self-documenting.
-    resources = concat([var.ses_order_identity_arn], local.ses_account_identity_arns, var.ses_order_template_arns)
+    # The module's own sending identity plus its two namespaced templates.
+    resources = concat([var.ses_order_identity_arn], var.ses_order_template_arns)
   }
 }
 
