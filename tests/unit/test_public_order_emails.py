@@ -1,12 +1,14 @@
 """Unit tests for the best-effort order-confirmation mailer (KW-PUBLIC-ORDERS-SES-1).
 
-Covers the spec §10.2 ``test_public_order_emails`` contract: seller email always
-attempted to the owner account's ``email``; buyer email only when provided and
-carrying the tokenized receipt link absolutized from ``SITE_URL``; the three
-honest ``confirmationEmailSent`` states; SES rejection swallowed; the ephemeral
-shape (no SES env vars) branches BEFORE any SES client construction; the
-handler pre-escapes nothing (SES Handlebars auto-escapes raw); and no log
-record ever contains the receipt token, the buyer email, or the phone.
+Covers the spec §10.2 ``test_public_order_emails`` contract: buyer email first,
+with the seller half (owner-account ``GetItem`` included) isolated behind its own
+error boundary; seller email always attempted to the owner account's ``email``;
+buyer email only when provided and carrying the tokenized receipt link
+absolutized from ``SITE_URL``; the three honest ``confirmationEmailSent`` states;
+SES rejection swallowed; the ephemeral shape (no SES env vars) branches BEFORE
+any SES client construction; the SES client carries explicit short timeouts; the
+handler pre-escapes nothing (SES Handlebars auto-escapes raw); and no log record
+ever contains the receipt token, the buyer email, or the phone.
 """
 
 import json
@@ -15,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 
 from src.handlers import public_order_emails
 from src.handlers.public_order_emails import handle_send_order_emails
@@ -102,6 +105,16 @@ def fake_ses(monkeypatch: pytest.MonkeyPatch) -> FakeSes:
     return fake
 
 
+def _seller_call(fake: FakeSes) -> Dict[str, Any]:
+    """The seller send, located by template rather than by call order."""
+    return next(call for call in fake.calls if call["Template"] == "order-confirm-seller-dev")
+
+
+def _buyer_call(fake: FakeSes) -> Dict[str, Any]:
+    """The buyer send, located by template rather than by call order."""
+    return next(call for call in fake.calls if call["Template"] == "order-confirm-dev")
+
+
 def _seed_account(dynamodb_table: Any, email: Optional[str]) -> Any:
     dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
     table = dynamodb.Table(ACCOUNTS_TABLE)
@@ -150,6 +163,72 @@ class TestUnconfigured:
         assert result["configured"] is False
 
 
+class TestBuyerFirstOrdering:
+    """FUNC-12/ARCH-5: the buyer confirmation is the mailer's critical path."""
+
+    def test_the_buyer_send_is_issued_before_the_seller_send(
+        self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
+    ) -> None:
+        _seed_account(dynamodb_table, SELLER_EMAIL)
+
+        handle_send_order_emails(make_event(), None)
+
+        assert [call["Template"] for call in fake_ses.calls] == ["order-confirm-dev", "order-confirm-seller-dev"]
+
+    def test_a_throttled_owner_account_read_still_sends_the_buyer_confirmation(
+        self,
+        ses_env: None,
+        fake_ses: FakeSes,
+        dynamodb_table: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The seller half's ``GetItem`` ran OUTSIDE any error boundary.
+
+        A throttling fault there aborted the Lambda before the buyer's
+        confirmation was even attempted. It is now logged and swallowed, and it
+        runs after the buyer send.
+        """
+
+        def throttled(**_kwargs: Any) -> Dict[str, Any]:
+            raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "Slow down"}}, "GetItem")
+
+        monkeypatch.setattr(public_order_emails.tables.accounts, "get_item", throttled)
+
+        with caplog.at_level(logging.WARNING):
+            result = handle_send_order_emails(make_event(), None)
+
+        assert result["configured"] is True
+        assert result["confirmationEmailSent"] is True
+        assert result["sellerEmailSent"] is False
+        assert _buyer_call(fake_ses)["Destination"]["ToAddresses"] == [BUYER_EMAIL]
+        assert len(fake_ses.calls) == 1
+        assert any("seller email failed" in record.message for record in caplog.records)
+
+    def test_the_ses_client_carries_explicit_short_timeouts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ARCH-5: the mailer runs inside the checkout, so its client is bounded.
+
+        Default botocore timeouts allow ~15s per attempt, which holds the buyer's
+        mutation open and provokes duplicate submissions.
+        """
+        captured: Dict[str, Any] = {}
+
+        def fake_client(service: str, **kwargs: Any) -> object:
+            captured["service"] = service
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(public_order_emails.boto3, "client", fake_client)
+
+        public_order_emails._ses_client()
+
+        config = captured["config"]
+        assert captured["service"] == "ses"
+        assert config.connect_timeout == public_order_emails._SES_CONNECT_TIMEOUT_SECONDS
+        assert config.read_timeout == public_order_emails._SES_READ_TIMEOUT_SECONDS
+        assert (config.connect_timeout, config.read_timeout) == (2, 3)
+
+
 class TestSellerEmail:
     def test_seller_email_always_attempted_to_the_owner_accounts_email(
         self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
@@ -160,7 +239,7 @@ class TestSellerEmail:
 
         assert result["configured"] is True
         assert result["sellerEmailSent"] is True
-        seller_call = fake_ses.calls[0]
+        seller_call = _seller_call(fake_ses)
         assert seller_call["Destination"]["ToAddresses"] == [SELLER_EMAIL]
         assert seller_call["Source"] == "orders@orders.dev.kernelworx.app"
         assert seller_call["Template"] == "order-confirm-seller-dev"
@@ -226,7 +305,7 @@ class TestBuyerEmail:
         result = handle_send_order_emails(make_event(), None)
 
         assert result["confirmationEmailSent"] is True
-        buyer_call = fake_ses.calls[-1]
+        buyer_call = _buyer_call(fake_ses)
         assert buyer_call["Destination"]["ToAddresses"] == [BUYER_EMAIL]
         assert buyer_call["Template"] == "order-confirm-dev"
         data = json.loads(buyer_call["TemplateData"])
@@ -252,7 +331,7 @@ class TestBuyerEmail:
 
         handle_send_order_emails(event, None)
 
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["sellerName"] == "Troops R Us"  # falls back to the stored row's denormalized name
         assert data["campaignName"] == "Fall Sale"
 
@@ -265,9 +344,9 @@ class TestEscapingAndLogging:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        seller_data = json.loads(fake_ses.calls[0]["TemplateData"])
+        seller_data = json.loads(_seller_call(fake_ses)["TemplateData"])
         assert seller_data["buyerFirstName"] == "O<Brien>"
-        buyer_data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        buyer_data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert buyer_data["firstName"] == "O<Brien>"
 
     def test_no_log_record_contains_token_buyer_email_or_phone(
@@ -323,7 +402,7 @@ class TestEdgeCases:
         result = handle_send_order_emails(event, None)
 
         assert result["confirmationEmailSent"] is True
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["receiptUrl"] == "https://example.com/r/c1/s1/rtok"
 
     def test_empty_receipt_url_renders_an_empty_link(
@@ -333,7 +412,7 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(receiptUrl=""), None)
 
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["receiptUrl"] == ""
 
     def test_malformed_line_items_are_dropped_from_template_data(
@@ -344,7 +423,7 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "10.00"}]
 
     def test_amounts_render_with_two_decimals_like_the_receipt_page(
@@ -358,7 +437,7 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["totalAmount"] == "12.50"
         assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "12.50"}]
 
@@ -374,8 +453,33 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        data = json.loads(fake_ses.calls[-1]["TemplateData"])
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
         assert data["totalAmount"] == "n/a"
+
+    def test_a_missing_amount_renders_as_zero_not_the_word_none(
+        self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
+    ) -> None:
+        """FUNC-15: ``None`` money formats as ``0.00``, never as ``$None``.
+
+        ``Decimal(str(None))`` raises, and the as-stored fallback then printed
+        the literal text ``None`` into the buyer's email next to the ``$``.
+        """
+        order = {
+            **ORDER,
+            "lineItems": [{"productId": "p1", "productName": "Cookies", "quantity": 2, "subtotal": None}],
+            "totalAmount": None,
+        }
+
+        handle_send_order_emails(make_event(order=order), None)
+
+        data = json.loads(_buyer_call(fake_ses)["TemplateData"])
+        assert data["totalAmount"] == "0.00"
+        assert data["lineItems"] == [{"productName": "Cookies", "quantity": 2, "subtotal": "0.00"}]
+
+    def test_format_amount_maps_none_to_zero_and_keeps_other_values_verbatim(self) -> None:
+        assert public_order_emails._format_amount(None) == "0.00"
+        assert public_order_emails._format_amount(12.5) == "12.50"
+        assert public_order_emails._format_amount("n/a") == "n/a"
 
     def test_missing_owner_account_id_skips_the_seller_email(
         self, ses_env: None, fake_ses: FakeSes, dynamodb_table: Any
@@ -394,7 +498,7 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        seller_data = json.loads(fake_ses.calls[0]["TemplateData"])
+        seller_data = json.loads(_seller_call(fake_ses)["TemplateData"])
         assert seller_data["buyerAddress"] == ""
 
     def test_structured_buyer_address_joins_all_four_fields(
@@ -408,5 +512,5 @@ class TestEdgeCases:
 
         handle_send_order_emails(make_event(order=order), None)
 
-        seller_data = json.loads(fake_ses.calls[0]["TemplateData"])
+        seller_data = json.loads(_seller_call(fake_ses)["TemplateData"])
         assert seller_data["buyerAddress"] == "1 Main St, Springfield, IL, 62701"
