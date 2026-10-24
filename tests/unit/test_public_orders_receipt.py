@@ -4,7 +4,8 @@ Covers ``src/handlers/public_orders_receipt.py`` line- and branch-wise
 (``--cov-fail-under=100``): the two URL-segment arguments are re-prefixed into
 the orders base-table key, one strongly consistent GetItem answers the read, and
 every negative branch (unknown order, no token, a mismatched token, a malformed
-or legacy id, an embedded-campaign mismatch) raises the identical NOT_FOUND.
+or legacy id, an embedded-campaign mismatch, or an order older than the receipt
+TTL) raises the identical NOT_FOUND.
 
 The private helpers are exercised directly so the defense-in-depth branches of
 ``_embedded_campaign_matches`` — only reachable with a hand-corrupted row — are
@@ -13,6 +14,7 @@ covered without a datastore round trip.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict
 from unittest.mock import patch
@@ -20,13 +22,13 @@ from unittest.mock import patch
 import pytest
 
 from src.handlers.public_orders_receipt import (
-    _as_float,
+    RECEIPT_TTL_DAYS,
     _build_receipt,
     _embedded_campaign_matches,
     _line_items,
     _load_order,
     _order_key,
-    _redact_secrets,
+    _order_within_ttl,
     _status,
     _text,
     _token_matches,
@@ -54,7 +56,7 @@ def _order(overrides: Dict[str, Any] | None = None) -> Dict[str, Any]:
         "orderId": _order_id(),
         "receiptToken": "tok",
         "sellerName": "Seller One",
-        "orderDate": "2024-01-01T00:00:00Z",
+        "orderDate": _recent_order_date(0),
         "totalAmount": Decimal("10.50"),
         "paymentMethod": "Venmo",
         "status": "NEW",
@@ -73,6 +75,12 @@ def _order(overrides: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if overrides:
         item.update(overrides)
     return item
+
+
+def _recent_order_date(days_ago: int) -> str:
+    """Return an ISO 8601 date string for ``days_ago`` days in the past."""
+    dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 class TestOrderKey:
@@ -171,17 +179,60 @@ class TestEmbeddedCampaignMatches:
         assert not _embedded_campaign_matches(_order({"orderId": "ORDER#other#s1"}), CAMPAIGN_ID)
 
 
+class TestOrderWithinTTL:
+    def test_fresh_order_within_ttl(self) -> None:
+        """An order created today is within the TTL."""
+        order = _order({"orderDate": _recent_order_date(0)})
+        assert _order_within_ttl(order) is True
+
+    def test_order_at_ttl_boundary_is_available(self) -> None:
+        """An order created exactly RECEIPT_TTL_DAYS - 1 days ago is still available."""
+        order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS - 1)})
+        assert _order_within_ttl(order) is True
+
+    def test_order_at_exact_ttl_is_unavailable(self) -> None:
+        """An order created exactly RECEIPT_TTL_DAYS days ago is unavailable (boundary)."""
+        order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS)})
+        assert _order_within_ttl(order) is False
+
+    def test_expired_order_outside_ttl(self) -> None:
+        """An order older than RECEIPT_TTL_DAYS is unavailable."""
+        order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS + 1)})
+        assert _order_within_ttl(order) is False
+
+    def test_order_without_date_is_unavailable(self) -> None:
+        """An order missing orderDate is treated as expired (fail closed)."""
+        order = _order({"orderDate": None})
+        del order["orderDate"]
+        assert _order_within_ttl(order) is False
+
+    def test_order_with_empty_date_is_unavailable(self) -> None:
+        """An order with empty orderDate is treated as expired."""
+        order = _order({"orderDate": ""})
+        assert _order_within_ttl(order) is False
+
+    def test_order_with_malformed_date_is_unavailable(self) -> None:
+        """An order with unparseable orderDate is treated as expired (fail closed)."""
+        order = _order({"orderDate": "not-a-date"})
+        assert _order_within_ttl(order) is False
+
+
 class TestCoercionHelpers:
     def test_as_float_numeric_forms(self) -> None:
-        assert _as_float(2) == 2.0
-        assert _as_float(1.5) == 1.5
-        assert _as_float(Decimal("3")) == 3.0
-        assert _as_float("4") == 4.0
+        # Import as_float from the shared module to verify it works
+        from src.utils.appsync_types import as_float
+
+        assert as_float(2) == 2.0
+        assert as_float(1.5) == 1.5
+        assert as_float(Decimal("3")) == 3.0
+        assert as_float("4") == 4.0
 
     def test_as_float_rejects_non_numbers(self) -> None:
-        assert _as_float(None) is None
-        assert _as_float("not a number") is None
-        assert _as_float([1]) is None
+        from src.utils.appsync_types import as_float
+
+        assert as_float(None) is None
+        assert as_float("not a number") is None
+        assert as_float([1]) is None
 
     def test_line_items_shapes_usable_rows(self) -> None:
         items = _line_items(_order())
@@ -245,6 +296,29 @@ class TestBuildReceipt:
         with pytest.raises(AppError):
             _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
 
+    def test_expired_order_is_unavailable(self, orders_table: Any) -> None:
+        """An order older than RECEIPT_TTL_DAYS returns NOT_FOUND."""
+        expired_order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS + 1)})
+        orders_table.put_item(Item=expired_order)
+        with pytest.raises(AppError) as exc:
+            _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
+        assert exc.value.error_code is ErrorCode.NOT_FOUND
+
+    def test_order_at_ttl_boundary_is_unavailable(self, orders_table: Any) -> None:
+        """An order created exactly RECEIPT_TTL_DAYS days ago returns NOT_FOUND."""
+        boundary_order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS)})
+        orders_table.put_item(Item=boundary_order)
+        with pytest.raises(AppError) as exc:
+            _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
+        assert exc.value.error_code is ErrorCode.NOT_FOUND
+
+    def test_order_just_within_ttl_is_available(self, orders_table: Any) -> None:
+        """An order created RECEIPT_TTL_DAYS - 1 days ago succeeds."""
+        fresh_order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS - 1)})
+        orders_table.put_item(Item=fresh_order)
+        receipt = _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
+        assert receipt["orderId"] == "ORDER#c1#s1"
+
 
 class TestRunReceipt:
     def test_success(self, orders_table: Any) -> None:
@@ -279,23 +353,31 @@ class TestRunReceipt:
 
 class TestRedactSecrets:
     def test_replaces_the_secret_in_place(self) -> None:
+        from src.utils.logging import redact_secrets
+
         exc = RuntimeError("boom secret-token here")
-        redacted = _redact_secrets(exc, "secret-token")
+        redacted = redact_secrets(exc, "secret-token")
         assert str(redacted) == "boom [redacted] here"
 
     def test_leaves_a_message_that_never_carried_it(self) -> None:
+        from src.utils.logging import redact_secrets
+
         exc = RuntimeError("plain failure")
-        redacted = _redact_secrets(exc, "secret-token")
+        redacted = redact_secrets(exc, "secret-token")
         assert str(redacted) == "plain failure"
 
     def test_none_secret_is_a_noop(self) -> None:
+        from src.utils.logging import redact_secrets
+
         exc = RuntimeError("boom token here")
-        redacted = _redact_secrets(exc, None)
+        redacted = redact_secrets(exc, None)
         assert str(redacted) == "boom token here"
 
     def test_empty_secret_is_a_noop(self) -> None:
+        from src.utils.logging import redact_secrets
+
         exc = RuntimeError("boom  here")
-        redacted = _redact_secrets(exc, "")
+        redacted = redact_secrets(exc, "")
         assert str(redacted) == "boom  here"
 
 
@@ -324,6 +406,16 @@ class TestHandleReceipt:
             )
         assert result["__isError"] is True
         assert result["errorCode"] is ErrorCode.INTERNAL_ERROR
+
+    def test_expired_order_payload(self, orders_table: Any, lambda_context: Any) -> None:
+        """An expired order returns NOT_FOUND through the decorated handler."""
+        expired_order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS + 1)})
+        orders_table.put_item(Item=expired_order)
+        result = handle_receipt(
+            _event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}), lambda_context
+        )
+        assert result["__isError"] is True
+        assert result["errorCode"] is ErrorCode.NOT_FOUND
 
 
 class TestOrderStatusBackCompat:

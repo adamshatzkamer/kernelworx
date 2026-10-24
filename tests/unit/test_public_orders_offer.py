@@ -14,6 +14,7 @@ payloads.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from unittest.mock import patch
 
@@ -23,7 +24,6 @@ import pytest
 from src.handlers import public_orders_offer as offer
 from src.handlers.public_orders_offer import (
     OFFER_UNAVAILABLE_MESSAGE,
-    _as_float,
     _as_int,
     _build_offer,
     _campaign_is_active,
@@ -32,7 +32,6 @@ from src.handlers.public_orders_offer import (
     _public_payment_methods,
     _public_product,
     _public_products,
-    _redact_secrets,
     _run_guarded,
     _settings_blob,
     _signed_qr_url,
@@ -42,12 +41,20 @@ from src.handlers.public_orders_offer import (
     _token_matches,
     handler,
 )
+from src.utils.appsync_types import as_float
 from src.utils.errors import AppError, ErrorCode
+from src.utils.logging import redact_secrets
 
 CAMPAIGN_ID = "CAMPAIGN#c1"
 PROFILE_ID = "PROFILE#p1"
 CATALOG_ID = "CATALOG#k1"
 ACCOUNT_ID = "ACCOUNT#sub1"
+
+
+def _recent_order_date(days_ago: int) -> str:
+    """Return an ISO 8601 date string for ``days_ago`` days in the past."""
+    dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @pytest.fixture
@@ -221,11 +228,11 @@ class TestLoadCatalog:
 
 class TestCoercionHelpers:
     def test_as_float(self) -> None:
-        assert _as_float(2) == 2.0
-        assert _as_float("3.5") == 3.5
-        assert _as_float(None) is None
-        assert _as_float("nope") is None
-        assert _as_float([1]) is None
+        assert as_float(2) == 2.0
+        assert as_float("3.5") == 3.5
+        assert as_float(None) is None
+        assert as_float("nope") is None
+        assert as_float([1]) is None
 
     def test_as_int(self) -> None:
         assert _as_int(None) is None
@@ -416,16 +423,16 @@ class TestRunGuarded:
 
 class TestRedactSecrets:
     def test_replaces_in_text(self) -> None:
-        assert str(_redact_secrets(RuntimeError("boom tok here"), "tok")) == "boom [redacted] here"
+        assert str(redact_secrets(RuntimeError("boom tok here"), "tok")) == "boom [redacted] here"
 
     def test_leaves_when_absent(self) -> None:
-        assert str(_redact_secrets(RuntimeError("plain"), "tok")) == "plain"
+        assert str(redact_secrets(RuntimeError("plain"), "tok")) == "plain"
 
     def test_none_secret(self) -> None:
-        assert str(_redact_secrets(RuntimeError("boom tok"), None)) == "boom tok"
+        assert str(redact_secrets(RuntimeError("boom tok"), None)) == "boom tok"
 
     def test_empty_secret(self) -> None:
-        assert str(_redact_secrets(RuntimeError("boom  tok"), "")) == "boom  tok"
+        assert str(redact_secrets(RuntimeError("boom  tok"), "")) == "boom  tok"
 
 
 class TestHandlerDispatch:
@@ -465,7 +472,7 @@ class TestHandlerDispatch:
                 "orderId": "ORDER#c1#s1",
                 "receiptToken": "tok",
                 "sellerName": "S",
-                "orderDate": "2024-01-01T00:00:00Z",
+                "orderDate": _recent_order_date(0),
                 "totalAmount": 1,
                 "paymentMethod": "Cash",
                 "status": "NEW",
