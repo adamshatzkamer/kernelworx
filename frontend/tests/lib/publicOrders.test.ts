@@ -5,6 +5,10 @@ describe('publicOrders', () => {
     it('returns the correct path', () => {
       expect(buildSharePath('campaign123', 'token456')).toBe('/o/campaign123/token456');
     });
+
+    it('normalizes prefixed campaign IDs using toUrlId', () => {
+      expect(buildSharePath('CAMPAIGN#campaign123', 'token456')).toBe('/o/campaign123/token456');
+    });
   });
 
   describe('resolveReceiptUrl', () => {

@@ -11,8 +11,8 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import QRCode from 'qrcode';
-import { toUrlId } from '../../lib/ids';
+import { buildSharePath } from '../../lib/publicOrders';
+import { useQrDataUrl } from '../../hooks/useQrDataUrl';
 
 interface PublicSettingsShareSectionProps {
   campaignId: string;
@@ -120,28 +120,8 @@ export const PublicSettingsShareSection: React.FC<PublicSettingsShareSectionProp
   shareToken,
   campaignName,
 }) => {
-  const shareUrl = shareToken ? `${window.location.origin}/o/${toUrlId(campaignId)}/${shareToken}` : null;
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-
-  // Regenerate the QR whenever the share URL changes (fresh enable, rotation).
-  useEffect(() => {
-    if (!shareUrl) {
-      setQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    QRCode.toDataURL(shareUrl, { width: 400, margin: 2 }).then(
-      (dataUrl) => {
-        if (!cancelled) setQrDataUrl(dataUrl);
-      },
-      () => {
-        if (!cancelled) setQrDataUrl(null);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [shareUrl]);
+  const shareUrl = shareToken ? `${window.location.origin}${buildSharePath(campaignId, shareToken)}` : null;
+  const { qrDataUrl } = useQrDataUrl(shareUrl, { width: 400, margin: 2 });
 
   if (!shareUrl) {
     return (

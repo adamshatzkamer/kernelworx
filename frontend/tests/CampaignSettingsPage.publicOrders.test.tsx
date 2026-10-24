@@ -205,8 +205,9 @@ describe('CampaignSettingsPage public orders section', () => {
     expect(screen.getByRole('checkbox', { name: 'Cash' })).toBeEnabled();
     // Enable stays gated until both acks are checked and a method is chosen.
     expect(screen.getByRole('button', { name: 'Enable' })).toBeDisabled();
-    // Save is meaningless while the feature is off.
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    // FUNC-3: Save and Rotate are enabled while parked so sellers can save config or rotate leaked token.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rotate Share Token' })).toBeEnabled();
   });
 
   it('enables public orders end-to-end: acks + method first, then Enable', async () => {
@@ -349,5 +350,245 @@ describe('CampaignSettingsPage public orders section', () => {
     await waitFor(() => {
       expect(screen.getByText(/Share link not available/)).toBeInTheDocument();
     });
+  });
+
+  it('FUNC-2: displays actionable error alert when token rotation fails, stating token is STILL ACTIVE', async () => {
+    const mocks = [
+      ...baseMocks(),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: ['Cash'],
+              acknowledgementsAccepted: true,
+              rotateToken: true,
+            },
+          },
+        },
+        error: new Error('Network error during rotation'),
+      },
+    ];
+    renderPage(mocks);
+    await settingsVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rotate Share Token' }));
+
+    await waitFor(() => {
+      const alertMsg = screen.getByText(/the token is STILL ACTIVE/);
+      expect(alertMsg).toBeInTheDocument();
+      expect(alertMsg.textContent).toContain('Failed to rotate share token');
+    });
+  });
+
+  it('FUNC-2: displays actionable error alert when save fails', async () => {
+    const mocks = [
+      ...baseMocks(),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: true,
+              allowedPaymentMethods: ['Cash', 'Check'],
+              acknowledgementsAccepted: true,
+            },
+          },
+        },
+        error: new Error('Database write failed'),
+      },
+    ];
+    renderPage(mocks);
+    await settingsVisible();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Check' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const alertMsg = screen.getByText(/Failed to save public order settings/);
+      expect(alertMsg).toBeInTheDocument();
+      expect(alertMsg.textContent).toContain('Database write failed');
+    });
+  });
+
+  it('FUNC-3: allows saving configuration and rotating token while parked (enabled=false)', async () => {
+    const parkedSettings = makeSettings({
+      enabled: false,
+      shareToken: 'leaked-tok',
+      allowedPaymentMethods: ['Cash'],
+    });
+    const mocks = [
+      ...baseMocks(parkedSettings),
+      {
+        request: {
+          query: UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS,
+          variables: {
+            input: {
+              campaignId: CAMPAIGN_ID,
+              enabled: false,
+              allowedPaymentMethods: ['Cash'],
+              acknowledgementsAccepted: true,
+              rotateToken: true,
+            },
+          },
+        },
+        result: {
+          data: {
+            updateCampaignPublicOrderSettings: makeSettings({
+              enabled: false,
+              shareToken: 'rotated-parked-tok',
+            }),
+          },
+        },
+      },
+    ];
+    renderPage(mocks);
+    await waitFor(() => {
+      expect(screen.getByTestId('share-url')).toHaveTextContent(shareUrlFor('leaked-tok'));
+    });
+
+    const rotateButton = screen.getByRole('button', { name: 'Rotate Share Token' });
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    expect(rotateButton).toBeEnabled();
+    expect(saveButton).toBeEnabled();
+
+    await userEvent.click(rotateButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-url')).toHaveTextContent(shareUrlFor('rotated-parked-tok'));
+    });
+  });
+
+  it('SEC-7: gates pre-checks on ackVersion; requires explicit re-acceptance before Save/Enable when outdated', async () => {
+    const outdatedSettings = makeSettings({
+      enabled: true,
+      acknowledgedAt: '2024-01-01T00:00:00.000Z',
+      ackVersion: 0, // Outdated
+      allowedPaymentMethods: ['Cash'],
+    });
+    renderPage(baseMocks(outdatedSettings));
+    await settingsVisible();
+
+    const paymentAck = screen.getByRole('checkbox', { name: PAYMENT_ACK_TEXT });
+    const disclosureAck = screen.getByRole('checkbox', { name: DISCLOSURE_ACK_TEXT });
+    expect(paymentAck).not.toBeChecked();
+    expect(disclosureAck).not.toBeChecked();
+
+    // Save must be disabled because acknowledgements are behind
+    const saveButton = screen.getByRole('button', { name: 'Save' });
+    expect(saveButton).toBeDisabled();
+
+    // After re-acknowledging both terms, Save becomes enabled
+    await userEvent.click(paymentAck);
+    expect(saveButton).toBeDisabled();
+    await userEvent.click(disclosureAck);
+    expect(saveButton).toBeEnabled();
+  });
+
+  it('FUNC-10a: distinguishes transient query errors from NOT_FOUND with a retryable alert', async () => {
+    const transientError = new Error('Network connection lost');
+    const mocks: MockedResponse[] = [
+      {
+        request: { query: GET_CAMPAIGN, variables: { campaignId: CAMPAIGN_ID } },
+        result: { data: { getCampaign: mockCampaign } },
+      },
+      {
+        request: { query: LIST_MANAGED_CATALOGS },
+        result: { data: { listManagedCatalogs: [mockCatalog] } },
+      },
+      {
+        request: { query: LIST_MY_CATALOGS },
+        result: { data: { listMyCatalogs: [] } },
+      },
+      {
+        request: { query: GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS, variables: { campaignId: CAMPAIGN_ID } },
+        error: transientError,
+      },
+      {
+        request: { query: GET_MY_PAYMENT_METHODS },
+        result: { data: { myPaymentMethods: [] } },
+      },
+      {
+        request: { query: GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS, variables: { campaignId: CAMPAIGN_ID } },
+        result: { data: { getCampaignPublicOrderSettings: makeSettings() } },
+      },
+    ];
+    renderPage(mocks);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load public order settings/)).toBeInTheDocument();
+    });
+
+    const retryButton = screen.getByRole('button', { name: /retry/i });
+    expect(retryButton).toBeInTheDocument();
+
+    await userEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-url')).toBeInTheDocument();
+    });
+  });
+
+  it('FUNC-10a: distinguishes NOT_FOUND query error with unavailable message', async () => {
+    const notFoundError = new Error('Not found');
+    (notFoundError as unknown as { graphQLErrors: Array<{ extensions: { errorCode: string } }> }).graphQLErrors = [
+      { extensions: { errorCode: 'NOT_FOUND' } },
+    ];
+    const mocks: MockedResponse[] = [
+      {
+        request: { query: GET_CAMPAIGN, variables: { campaignId: CAMPAIGN_ID } },
+        result: { data: { getCampaign: mockCampaign } },
+      },
+      {
+        request: { query: LIST_MANAGED_CATALOGS },
+        result: { data: { listManagedCatalogs: [mockCatalog] } },
+      },
+      {
+        request: { query: LIST_MY_CATALOGS },
+        result: { data: { listMyCatalogs: [] } },
+      },
+      {
+        request: { query: GET_CAMPAIGN_PUBLIC_ORDER_SETTINGS, variables: { campaignId: CAMPAIGN_ID } },
+        error: notFoundError,
+      },
+      {
+        request: { query: GET_MY_PAYMENT_METHODS },
+        result: { data: { myPaymentMethods: [] } },
+      },
+    ];
+    renderPage(mocks);
+
+    await waitFor(() => {
+      expect(screen.getByText('Public order settings not available for this campaign.')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  it('ARCH-6: hides public orders section for non-owners (isOwner=false)', async () => {
+    render(
+      <MockedProvider mocks={baseMocks()}>
+        <MemoryRouter
+          initialEntries={[`/scouts/${PROFILE_ID_RAW}/campaigns/${CAMPAIGN_ID_RAW}/settings`]}
+        >
+          <Routes>
+            <Route
+              path="/scouts/:profileId/campaigns/:campaignId/settings"
+              element={<CampaignSettingsPage isOwner={false} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </MockedProvider>,
+    );
+
+    // Basic Information should still be visible
+    await waitFor(() => {
+      expect(screen.getByText('Basic Information')).toBeInTheDocument();
+    });
+
+    // Public Orders must NOT be in the document
+    expect(screen.queryByText('Public Orders')).not.toBeInTheDocument();
   });
 });

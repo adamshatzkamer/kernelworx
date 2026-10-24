@@ -992,4 +992,3 @@ export const UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS = gql`
   }
 `;
 
-export const pickUpdateCampaignPublicOrderSettingsDoc = () => UPDATE_CAMPAIGN_PUBLIC_ORDER_SETTINGS;

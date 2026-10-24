@@ -18,4 +18,11 @@ describe('PublicSettingsCapNotice', () => {
     expect(screen.getByText(/At maximum capacity!/)).toBeInTheDocument();
     expect(screen.getByText(/100% used/)).toBeInTheDocument();
   });
+
+  it('guards against division by zero when maxOrders is zero', () => {
+    render(<PublicSettingsCapNotice publicOrderCount={0} maxOrders={0} />);
+    expect(screen.getByText(/0 out of 0 maximum orders/)).toBeInTheDocument();
+    expect(screen.getByText(/At maximum capacity!/)).toBeInTheDocument();
+    expect(screen.getByText(/0% used/)).toBeInTheDocument();
+  });
 });

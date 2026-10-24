@@ -1,6 +1,8 @@
 /**
  * Utilities for public order URLs and links.
  */
+import { toUrlId } from './ids';
+
 
 /**
  * Resolves a receipt URL for use in links.
@@ -25,5 +27,5 @@ export function resolveReceiptUrl(url: string | null | undefined): string | null
  * @returns A path like "/o/campaignId/token"
  */
 export function buildSharePath(campaignId: string, token: string): string {
-  return `/o/${campaignId}/${token}`;
+  return `/o/${toUrlId(campaignId)}/${token}`;
 }

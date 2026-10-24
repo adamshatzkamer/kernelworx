@@ -10,7 +10,7 @@ interface PublicSettingsCapNoticeProps {
 
 export const PublicSettingsCapNotice: React.FC<PublicSettingsCapNoticeProps> = ({ publicOrderCount, maxOrders }) => {
   const remaining = maxOrders - publicOrderCount;
-  const percentage = (publicOrderCount / maxOrders) * 100;
+  const percentage = maxOrders > 0 ? (publicOrderCount / maxOrders) * 100 : 0;
 
   return (
     <Box sx={{ mb: 3 }}>
@@ -21,7 +21,7 @@ export const PublicSettingsCapNotice: React.FC<PublicSettingsCapNoticeProps> = (
         You have received {publicOrderCount} out of {maxOrders} maximum orders.
       </Typography>
       {remaining > 0 ? (
-        <Typography variant="body2" color="success">
+        <Typography variant="body2" color="success.main">
           {remaining} orders remaining before reaching capacity ({percentage.toFixed(0)}% used)
         </Typography>
       ) : (

@@ -23,6 +23,7 @@ import {
   AlertTitle,
   FormControlLabel,
   Switch,
+  Snackbar,
 } from '@mui/material';
 import { Delete as DeleteIcon, Warning as WarningIcon } from '@mui/icons-material';
 import {
@@ -272,7 +273,30 @@ const initializeFormFromCampaign = (
   }
 };
 
-export const CampaignSettingsPage: React.FC = () => {
+// Helper to format public order mutation error messages
+const getPublicOrderMutationErrorMessage = (
+  error: { operation: string; message: string } | null,
+): string => {
+  if (!error) return '';
+  switch (error.operation) {
+    case 'rotate':
+      return `Failed to rotate share token: the token is STILL ACTIVE. ${error.message}`;
+    case 'save':
+      return `Failed to save public order settings: ${error.message}`;
+    case 'enable':
+      return `Failed to enable public orders: ${error.message}`;
+    case 'disable':
+      return `Failed to disable public orders: ${error.message}`;
+    default:
+      return `Operation failed: ${error.message}`;
+  }
+};
+
+interface CampaignSettingsPageProps {
+  isOwner?: boolean;
+}
+
+export const CampaignSettingsPage: React.FC<CampaignSettingsPageProps> = ({ isOwner = true }) => {
   const { profileId: encodedProfileId, campaignId: encodedCampaignId } = useParams<{
     profileId: string;
     campaignId: string;
@@ -342,7 +366,12 @@ export const CampaignSettingsPage: React.FC = () => {
     paymentAckAccepted: publicOrderPaymentAck,
     disclosureAckAccepted: publicOrderDisclosureAck,
     acknowledgementsAccepted: publicOrderAcknowledgementsAccepted,
-  } = useCampaignPublicOrderSettings({ campaignId: dbCampaignId });
+    queryError: publicOrderQueryError,
+    refetch: refetchPublicOrderSettings,
+    isNotFound: publicOrderIsNotFound,
+    mutationError: publicOrderMutationError,
+    clearMutationError: clearPublicOrderMutationError,
+  } = useCampaignPublicOrderSettings({ campaignId: isOwner ? dbCampaignId : null });
 
   // Initialize form when campaign loads
   React.useEffect(() => {
@@ -572,11 +601,46 @@ export const CampaignSettingsPage: React.FC = () => {
       </Paper>
 
       {/* Public Orders */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Public Orders
-        </Typography>
-        <>
+      {isOwner && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Public Orders
+          </Typography>
+          {publicOrderMutationError && (
+            <Snackbar
+              open={Boolean(publicOrderMutationError)}
+              autoHideDuration={8000}
+              onClose={clearPublicOrderMutationError}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+              <Alert
+                severity="error"
+                onClose={clearPublicOrderMutationError}
+                sx={{ width: '100%' }}
+              >
+                {getPublicOrderMutationErrorMessage(publicOrderMutationError)}
+              </Alert>
+            </Snackbar>
+          )}
+          {publicOrderLoading && !publicOrderSettings && <LoadingState minHeight="200px" />}
+          {!publicOrderLoading && publicOrderQueryError && !publicOrderIsNotFound && (
+            <Alert
+              severity="error"
+              action={
+                <Button color="inherit" size="small" onClick={() => void refetchPublicOrderSettings?.()}>
+                  Retry
+                </Button>
+              }
+              sx={{ mb: 2 }}
+            >
+              Failed to load public order settings.
+            </Alert>
+          )}
+          {!publicOrderLoading && (publicOrderIsNotFound || (!publicOrderSettings && !publicOrderQueryError)) && (
+            <Typography variant="body2" color="text.secondary">
+              Public order settings not available for this campaign.
+            </Typography>
+          )}
           {publicOrderSettings && !publicOrderLoading && (
             <>
               <PublicSettingsShareSection
@@ -605,6 +669,7 @@ export const CampaignSettingsPage: React.FC = () => {
                 <PublicSettingsActions
                   enabled={publicOrderSettings.enabled}
                   canEnable={publicOrderAcknowledgementsAccepted && publicOrderDraft.allowedPaymentMethods.length > 0}
+                  canSave={!publicOrderSettings.enabled || publicOrderAcknowledgementsAccepted}
                   onRotate={() => {
                     void rotatePublicOrderToken();
                   }}
@@ -622,9 +687,8 @@ export const CampaignSettingsPage: React.FC = () => {
               </Stack>
             </>
           )}
-          {!publicOrderSettings && publicOrderLoading && <LoadingState minHeight="200px" />}
-        </>
-      </Paper>
+        </Paper>
+      )}
 
       {/* Danger Zone */}
       <Paper

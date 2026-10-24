@@ -80,6 +80,18 @@ describe('PublicSettingsActions', () => {
     );
     expect(screen.getByRole('button', { name: 'Enable' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Disable' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Rotate Share Token' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rotate Share Token' })).toBeEnabled();
+  });
+
+  it('keeps Save and Rotate enabled while parked (enabled=false)', () => {
+    renderActions({ enabled: false, saving: false });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rotate Share Token' })).toBeEnabled();
+  });
+
+  it('respects canSave prop for Save button', () => {
+    renderActions({ enabled: true, canSave: false });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 });
