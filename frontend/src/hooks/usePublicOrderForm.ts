@@ -54,6 +54,31 @@ function clampQuantity(quantity: number): number {
   return Math.min(MAX_PUBLIC_QUANTITY, Math.max(0, Math.trunc(quantity)));
 }
 
+/**
+ * The success-screen state a create response implies, kept as a pure function so
+ * the submit path stays a single linear flow.
+ *
+ * The create response carries no payment-method field today; it is read
+ * defensively so the stored value wins as soon as the schema echoes it.
+ */
+function outcomeOfSubmission(
+  form: PublicOrderFormState,
+  offer: PublicOfferView,
+  created: GqlPublicCreateOrderMutation['publicCreateOrder'],
+): { summary: PublicOrderSubmittedSummary; receipt: PublicOrderReceiptView } {
+  const storedPaymentMethod = (created as { paymentMethodName?: string | null }).paymentMethodName;
+  return {
+    summary: buildSubmittedSummary(form, offer, storedPaymentMethod),
+    receipt: {
+      orderId: created.orderId,
+      receiptUrl: created.receiptUrl,
+      totalAmount: created.totalAmount,
+      buyerEmailProvided: created.buyerEmailProvided,
+      confirmationEmailSent: created.confirmationEmailSent,
+    },
+  };
+}
+
 interface UsePublicOrderFormArgs {
   offer: PublicOfferView;
   token: string;
@@ -91,13 +116,15 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
     setForm((previous) => ({ ...previous, lineItems: { ...previous.lineItems, [productId]: clamped } }));
   }, []);
 
-  // A ref, not just the `submitting` state: two taps inside one React batch
-  // both read the pre-update state, so the state flag alone cannot close the
-  // re-entry window.
+  // A ref, not the `submitting` state: two taps inside one React batch both
+  // read the pre-update state, so the state flag alone cannot close the
+  // re-entry window. The ref covers a strictly wider span than the state
+  // (it is set before `setSubmitting` and cleared after it), so it is the
+  // single authoritative guard.
   const inFlight = useRef(false);
 
   const submitNow = async () => {
-    if (submitting || inFlight.current) {
+    if (inFlight.current) {
       return;
     }
     inFlight.current = true;
@@ -113,17 +140,9 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
       });
       const created = result.data?.publicCreateOrder;
       if (created) {
-        // The create response carries no payment-method field today; read it
-        // defensively so the stored value wins as soon as the schema echoes it.
-        const storedPaymentMethod = (created as { paymentMethodName?: string | null }).paymentMethodName;
-        setSummary(buildSubmittedSummary(form, offer, storedPaymentMethod));
-        setReceipt({
-          orderId: created.orderId,
-          receiptUrl: created.receiptUrl,
-          totalAmount: created.totalAmount,
-          buyerEmailProvided: created.buyerEmailProvided,
-          confirmationEmailSent: created.confirmationEmailSent,
-        });
+        const outcome = outcomeOfSubmission(form, offer, created);
+        setSummary(outcome.summary);
+        setReceipt(outcome.receipt);
       }
     } catch (mutationError) {
       // Anonymous page: never echo the server's raw wording for a code we do
@@ -156,7 +175,7 @@ export function usePublicOrderForm({ offer, token }: UsePublicOrderFormArgs) {
 
   const totalAmount = useMemo(
     () =>
-      submittedLineItems(form).reduce(
+      submittedLineItems(form.lineItems).reduce(
         (total, item) => total + (priceById.get(item.productId) ?? 0) * item.quantity,
         0,
       ),

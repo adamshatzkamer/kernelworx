@@ -21,6 +21,54 @@ interface BuyerContactFieldsProps {
   onAddressChange: (field: keyof PublicOrderAddressForm, value: string) => void;
 }
 
+interface ContactFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** The error for this exact box. */
+  error?: string;
+  /** An error covering the block this box belongs to, shown when the box itself is clean. */
+  groupError?: string;
+  /** The neutral hint shown when nothing is wrong. */
+  hint?: string;
+  required?: boolean;
+  type?: string;
+  maxLength?: number;
+}
+
+/**
+ * One buyer contact input with its error resolution.
+ *
+ * The precedence — this box's own error, then the block's, then the neutral
+ * hint — is the whole point of the public contact form, so it lives in one
+ * place rather than in eight `||` chains that can drift apart. Only the box's
+ * own error marks it invalid: a block error is shown as text under the first
+ * box of the block, but a box the server would accept is not flagged as wrong.
+ */
+const ContactField: React.FC<ContactFieldProps> = ({
+  label,
+  value,
+  onChange,
+  error,
+  groupError,
+  hint,
+  required,
+  type,
+  maxLength,
+}) => (
+  <TextField
+    required={required}
+    fullWidth
+    type={type}
+    label={label}
+    value={value}
+    onChange={(event) => onChange(event.target.value)}
+    error={Boolean(error)}
+    helperText={error ?? groupError ?? hint}
+    inputProps={{ maxLength }}
+  />
+);
+
 export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
   firstName,
   lastName,
@@ -33,92 +81,79 @@ export const BuyerContactFields: React.FC<BuyerContactFieldsProps> = ({
 }) => (
   <Grid container spacing={2}>
     <Grid size={{ xs: 12, sm: 6 }}>
-      <TextField
+      <ContactField
         required
-        fullWidth
         label="First name"
         value={firstName}
-        onChange={(event) => onFieldChange('firstName', event.target.value)}
-        error={Boolean(errors.firstName)}
-        helperText={errors.firstName || 'As it should appear on the order.'}
-        inputProps={{ maxLength: 100 }}
+        onChange={(value) => onFieldChange('firstName', value)}
+        error={errors.firstName}
+        hint="As it should appear on the order."
+        maxLength={100}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 6 }}>
-      <TextField
+      <ContactField
         required
-        fullWidth
         label="Last name"
         value={lastName}
-        onChange={(event) => onFieldChange('lastName', event.target.value)}
-        error={Boolean(errors.lastName)}
-        helperText={errors.lastName || 'As it should appear on the order.'}
-        inputProps={{ maxLength: 100 }}
+        onChange={(value) => onFieldChange('lastName', value)}
+        error={errors.lastName}
+        hint="As it should appear on the order."
+        maxLength={100}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 6 }}>
-      <TextField
-        fullWidth
+      <ContactField
         label="Phone"
         value={phone}
-        onChange={(event) => onFieldChange('phone', event.target.value)}
-        error={Boolean(errors.phone)}
-        helperText={errors.phone || 'A 10-digit US phone number. Phone or a complete address is required.'}
+        onChange={(value) => onFieldChange('phone', value)}
+        error={errors.phone}
+        hint="A 10-digit US phone number. Phone or a complete address is required."
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 6 }}>
-      <TextField
-        fullWidth
-        type="email"
+      <ContactField
         label="Email (optional)"
+        type="email"
         value={email}
-        onChange={(event) => onFieldChange('email', event.target.value)}
-        error={Boolean(errors.email)}
-        helperText={errors.email || 'Optional. Without it you will not receive a confirmation email.'}
+        onChange={(value) => onFieldChange('email', value)}
+        error={errors.email}
+        hint="Optional. Without it you will not receive a confirmation email."
       />
     </Grid>
     <Grid size={{ xs: 12 }}>
-      <TextField
-        fullWidth
+      <ContactField
         label="Street address"
         value={address.street}
-        onChange={(event) => onAddressChange('street', event.target.value)}
-        error={Boolean(errors.addressFields?.street)}
-        helperText={
-          errors.addressFields?.street ||
-          errors.address ||
-          'Or fill in a full US address instead of a phone number: street, city, state and ZIP.'
-        }
+        onChange={(value) => onAddressChange('street', value)}
+        error={errors.addressFields?.street}
+        groupError={errors.address}
+        hint="Or fill in a full US address instead of a phone number: street, city, state and ZIP."
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 5 }}>
-      <TextField
-        fullWidth
+      <ContactField
         label="City"
         value={address.city}
-        onChange={(event) => onAddressChange('city', event.target.value)}
-        error={Boolean(errors.addressFields?.city)}
-        helperText={errors.addressFields?.city}
+        onChange={(value) => onAddressChange('city', value)}
+        error={errors.addressFields?.city}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 3 }}>
-      <TextField
-        fullWidth
+      <ContactField
         label="State"
         value={address.state}
-        onChange={(event) => onAddressChange('state', event.target.value)}
-        error={Boolean(errors.addressFields?.state)}
-        helperText={errors.addressFields?.state}
+        onChange={(value) => onAddressChange('state', value)}
+        error={errors.addressFields?.state}
       />
     </Grid>
     <Grid size={{ xs: 12, sm: 4 }}>
-      <TextField
-        fullWidth
+      <ContactField
         label="ZIP code"
         value={address.zipCode}
-        onChange={(event) => onAddressChange('zipCode', event.target.value)}
-        error={Boolean(errors.addressFields?.zipCode)}
-        helperText={errors.addressFields?.zipCode || '5 or 9 digits.'}
+        onChange={(value) => onAddressChange('zipCode', value)}
+        error={errors.addressFields?.zipCode}
+        hint="5 or 9 digits."
       />
     </Grid>
   </Grid>

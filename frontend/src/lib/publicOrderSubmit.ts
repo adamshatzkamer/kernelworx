@@ -41,7 +41,7 @@ export function buildPublicOrderInput(args: {
     firstName: form.firstName.trim(),
     lastName: form.lastName.trim(),
     paymentMethod: form.paymentMethod,
-    lineItems: submittedLineItems(form),
+    lineItems: submittedLineItems(form.lineItems),
   };
 
   const phone = form.phone.trim();
@@ -72,8 +72,8 @@ export function buildPublicOrderInput(args: {
  * never reach the server, and the on-screen estimate and the success summary
  * are computed from exactly this set.
  */
-export function submittedLineItems(form: PublicOrderFormState): { productId: string; quantity: number }[] {
-  return Object.entries(form.lineItems)
+export function submittedLineItems(lineItems: Record<string, number>): { productId: string; quantity: number }[] {
+  return Object.entries(lineItems)
     .filter(([productId, quantity]) => productId.length > 0 && quantityIsValid(quantity))
     .map(([productId, quantity]) => ({ productId, quantity }));
 }
@@ -98,7 +98,7 @@ export function buildSubmittedSummary(
   storedPaymentMethod?: string | null,
 ): PublicOrderSubmittedSummary {
   const productsById = new Map(offer.products.map((product) => [product.productId, product]));
-  const lineItems = submittedLineItems(form).flatMap((item) => {
+  const lineItems = submittedLineItems(form.lineItems).flatMap((item) => {
     const product = productsById.get(item.productId);
     if (!product) {
       return [];

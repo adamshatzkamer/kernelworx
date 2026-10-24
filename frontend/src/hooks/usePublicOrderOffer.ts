@@ -26,6 +26,17 @@ interface RetainedOffer {
   offer: PublicOfferView;
 }
 
+/**
+ * The retained offer for this exact link, or null. A different campaign or a
+ * rotated token must never inherit another link's seller, prices, or methods.
+ */
+function retainedOfferFor(retained: RetainedOffer | null, linkKey: string): PublicOfferView | null {
+  if (retained && retained.linkKey === linkKey) {
+    return retained.offer;
+  }
+  return null;
+}
+
 export function usePublicOrderOffer(campaignId: string, token: string) {
   const { data, loading, error, refetch } = useQuery<GqlPublicGetOrderOfferQuery, GqlPublicGetOrderOfferQueryVariables>(
     PUBLIC_GET_ORDER_OFFER,
@@ -42,7 +53,7 @@ export function usePublicOrderOffer(campaignId: string, token: string) {
     }
   }, [freshOffer, linkKey]);
 
-  const offer = freshOffer ?? (retained && retained.linkKey === linkKey ? retained.offer : null);
+  const offer = freshOffer ?? retainedOfferFor(retained, linkKey);
 
   return { offer, loading, error, refetch };
 }

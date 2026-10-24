@@ -88,7 +88,7 @@ describe('buildPublicOrderInput', () => {
 
 describe('submittedLineItems', () => {
   it('keeps whole positive quantities inside the picker range', () => {
-    expect(submittedLineItems(formState({ lineItems: { 'PROD#1': 1, 'PROD#2': MAX_PUBLIC_QUANTITY } }))).toEqual(
+    expect(submittedLineItems(formState({ lineItems: { 'PROD#1': 1, 'PROD#2': MAX_PUBLIC_QUANTITY } }).lineItems)).toEqual(
       expect.arrayContaining([
         { productId: 'PROD#1', quantity: 1 },
         { productId: 'PROD#2', quantity: MAX_PUBLIC_QUANTITY },
@@ -100,16 +100,16 @@ describe('submittedLineItems', () => {
     const form = formState({
       lineItems: { a: -1, b: 0, c: 1.5, d: Number.NaN, e: Number.POSITIVE_INFINITY, f: 2 },
     });
-    expect(submittedLineItems(form)).toEqual([{ productId: 'f', quantity: 2 }]);
+    expect(submittedLineItems(form.lineItems)).toEqual([{ productId: 'f', quantity: 2 }]);
   });
 
   it('drops quantities above the picker maximum so the estimate cannot disagree with the order', () => {
     const form = formState({ lineItems: { a: MAX_PUBLIC_QUANTITY + 1 } });
-    expect(submittedLineItems(form)).toEqual([]);
+    expect(submittedLineItems(form.lineItems)).toEqual([]);
   });
 
   it('drops an empty product id', () => {
-    expect(submittedLineItems(formState({ lineItems: { '': 3 } }))).toEqual([]);
+    expect(submittedLineItems(formState({ lineItems: { '': 3 } }).lineItems)).toEqual([]);
   });
 });
 
