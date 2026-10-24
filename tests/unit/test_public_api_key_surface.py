@@ -319,12 +319,10 @@ def test_committed_templates_carry_placeholders_for_the_key():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="the input-type no-directive rule was never measured; do not freeze an assumption")
 def test_input_types_need_no_auth_directive():
-    """GAP - the spike measured fields and types, not inputs.
-
-    `PublicCreateOrderInput` reuses `AddressInput`/`LineItemInput`, so if inputs
-    ever turned out to need a directive, three input types would have to carry it.
-    Verify it on a live stack before writing the assertion; the schema currently
-    carries no directive on any input type.
-    """
+    """Input types carry no auth directive (server-mirroring rule)."""
+    schema = (REPO_ROOT / "tofu" / "application" / "schema" / "schema.graphql").read_text()
+    input_decls = [line for line in schema.splitlines() if line.lstrip().startswith("input ")]
+    assert input_decls, "expected at least one input type declaration"
+    for line in input_decls:
+        assert "@aws" not in line, f"input declaration carries a directive: {line}"

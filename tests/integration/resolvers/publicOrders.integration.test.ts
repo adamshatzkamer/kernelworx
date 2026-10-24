@@ -813,6 +813,7 @@ describe('Public Orders Integration Tests', () => {
     });
 
     test('rotating the token replaces it and keeps the URL otherwise stable', async () => {
+      const oldToken = shareToken;
       const { data } = await ownerClient.mutate({
         mutation: UPDATE_PUBLIC_SETTINGS,
         variables: { input: { campaignId, enabled: true, rotateToken: true } },
@@ -827,6 +828,33 @@ describe('Public Orders Integration Tests', () => {
         fetchPolicy: 'network-only',
       });
       expect(reread.data.getCampaignPublicOrderSettings.shareToken).toBe(rotated);
+
+      // SEC-10: the superseded token must be dead on BOTH the offer read and the
+      // create-order write paths (NOT_FOUND), not just replaced.
+      const deadClient = createApiKeyClient();
+      await expectGraphQLError(
+        () => deadClient.query({ query: PUBLIC_OFFER, variables: { campaignId: bareId(campaignId), token: oldToken } }),
+        'NOT_FOUND',
+        OFFER_UNAVAILABLE
+      );
+      await expectGraphQLError(
+        () => deadClient.mutate({
+          mutation: PUBLIC_CREATE_ORDER,
+          variables: {
+            input: {
+              campaignId: bareId(campaignId),
+              token: oldToken,
+              acknowledgementsAccepted: true,
+              firstName: 'X',
+              lastName: 'Y',
+              paymentMethod: 'Cash',
+              lineItems: [{ productId: 'p', quantity: 1 }],
+            },
+          },
+        }),
+        'NOT_FOUND'
+      );
+
       shareToken = rotated;
     });
 
