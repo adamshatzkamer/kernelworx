@@ -1,5 +1,6 @@
 import { util } from '@aws-appsync/utils';
 import { stripIdPrefix } from './ids.js';
+import { parseOrderKey } from './order_keys.js';
 import { validateAddress, validatePhone } from './validation.js';
 
 // Shared contract for the publicCreateOrder pipeline (#679 write slice,
@@ -273,17 +274,19 @@ export function validateAndMapPublicOrderInput(input) {
 // The emailed copy of the link is composed absolutely from the SITE_URL env in
 // the email slice, where there is no browser origin to inherit.
 //
-// confirmationEmailSent is false because no send path exists yet: the SES slice
-// owns it, and the honesty contract (§6.3) forbids claiming a send that never
-// happened. buyerEmailProvided is the honest "the buyer gave us an address".
+// confirmationEmailSent is finalized by the best-effort email step that runs
+// synchronously inside checkout after the write: the read step passes the receipt
+// through with this flag updated, so the committed-order receipt never claims a
+// send that did not happen. buyerEmailProvided is the honest "the buyer gave us
+// an address".
 export function composePublicOrderReceipt(order) {
     if (!order || typeof order.orderId !== 'string') {
         util.error('Order could not be written', 'INTERNAL_ERROR');
         return null;
     }
 
-    const parts = order.orderId.split('#');
-    const orderSuffix = parts.length === 3 ? parts[2] : '';
+    const parsed = parseOrderKey(order.orderId);
+    const orderSuffix = parsed ? parsed.suffix : '';
     const receiptToken = typeof order.receiptToken === 'string' ? order.receiptToken : '';
     const campaignId = typeof order.campaignId === 'string' ? stripIdPrefix(order.campaignId, 'CAMPAIGN#') : '';
 

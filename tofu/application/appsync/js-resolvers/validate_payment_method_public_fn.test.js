@@ -31,7 +31,7 @@ describe('validate_payment_method_public request', () => {
     // order cap.
     it('rejects a soft-deleted catalog before any datastore call', () => {
         const stash = {
-            catalog: { isDeleted: true, products: [{ productId: 'P1' }] },
+            catalog: { isDeleted: true, products: [{ productId: 'P1', price: 1.25 }] },
             publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P1', quantity: 1 }] },
         };
         assert.throws(() => request({ stash }), /INVALID_INPUT: Catalog is not available for this campaign/);
@@ -39,7 +39,7 @@ describe('validate_payment_method_public request', () => {
 
     it('rejects an unknown productId before any datastore call, even for a global pseudo-method', () => {
         const stash = {
-            catalog: { products: [{ productId: 'P1' }] },
+            catalog: { products: [{ productId: 'P1', price: 1.25 }] },
             publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P2', quantity: 1 }] },
         };
         assert.throws(() => request({ stash }), /INVALID_INPUT: Product P2 not found in catalog/);
@@ -47,7 +47,7 @@ describe('validate_payment_method_public request', () => {
 
     it('passes a catalog-backed valid order through to the normal flow', () => {
         const stash = {
-            catalog: { products: [{ productId: 'P1' }] },
+            catalog: { products: [{ productId: 'P1', price: 1.25 }] },
             publicOrder: { paymentMethod: 'Cash', lineItems: [{ productId: 'P1', quantity: 2 }] },
         };
         const req = request({ stash });

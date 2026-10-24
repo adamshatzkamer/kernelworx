@@ -6,6 +6,7 @@ import {
     PUBLIC_ORDER_UNAVAILABLE,
     validateAndMapPublicOrderInput
 } from './lib/public_order.js';
+import { campaignIsActive } from './lib/public_settings.js';
 
 // Step 2 of the publicCreateOrder pipeline (#679 write slice, spec §5.3): the
 // authorization step. One strongly consistent GetItem on the campaign under the
@@ -111,7 +112,7 @@ export function response(ctx) {
     // Back-compat default shared with get_campaign_for_order_fn.js and
     // lookup_public_settings_campaign_fn.js: campaigns written before isActive
     // existed carry no attribute, and absence means active.
-    const active = campaign.isActive == null ? true : campaign.isActive === true;
+    const active = campaignIsActive(campaign);
     if (!active) {
         util.error(PUBLIC_ORDER_UNAVAILABLE, 'NOT_FOUND');
         return null;

@@ -1,4 +1,5 @@
 import { util } from '@aws-appsync/utils';
+import { isConditionFailure } from './lib/public_order.js';
 import {
     ACK_VERSION,
     acknowledgementIsBehind,
@@ -130,8 +131,7 @@ export function request(ctx) {
 export function response(ctx) {
     if (ctx.error) {
         if (
-            ctx.error.type === 'DynamoDB:ConditionalCheckFailedException' ||
-            (ctx.error.message && ctx.error.message.includes('ConditionalCheckFailed'))
+            isConditionFailure(ctx.error)
         ) {
             // Either the first-enable guard (another save minted the token
             // first, so this one wrote nothing and the winner's share URL

@@ -1,5 +1,5 @@
 import { util } from '@aws-appsync/utils';
-import { stashedCampaignId, stashedProfileId } from './lib/public_settings.js';
+import { getCampaignPublicSettings } from './lib/public_settings.js';
 
 // Authoritative settings read of the getCampaignPublicOrderSettings pipeline
 // (KW-PUBLIC-ORDERS-CAMPAIGN-CORE-1). Rev 7 stores the publicOrders map on the
@@ -20,21 +20,7 @@ import { stashedCampaignId, stashedProfileId } from './lib/public_settings.js';
 // never enabled public orders simply has no publicOrders attribute, and the
 // composition in the pipeline root answers enabled: false with empty defaults.
 export function request(ctx) {
-    const profileId = stashedProfileId(ctx);
-    const campaignId = stashedCampaignId(ctx);
-
-    if (!profileId || !campaignId) {
-        // The locator and the owner gate both proved a campaign exists; reaching
-        // here means the pipeline was rewired, not that the caller is wrong.
-        util.error('Campaign not found', 'NOT_FOUND');
-        return;
-    }
-
-    return {
-        operation: 'GetItem',
-        key: util.dynamodb.toMapValues({ profileId: profileId, campaignId: campaignId }),
-        consistentRead: true
-    };
+    return getCampaignPublicSettings(ctx);
 }
 
 export function response(ctx) {

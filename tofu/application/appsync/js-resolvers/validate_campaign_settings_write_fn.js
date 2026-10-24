@@ -2,9 +2,8 @@ import { util } from '@aws-appsync/utils';
 import { normalizeIdOrPrefix } from './lib/ids.js';
 import {
     campaignIsActive,
-    settingsWriteIsEnforcing,
-    stashedCampaignId,
-    stashedProfileId
+    getCampaignPublicSettings,
+    settingsWriteIsEnforcing
 } from './lib/public_settings.js';
 
 // CampaignsDS validation step of the updateCampaignPublicOrderSettings pipeline
@@ -28,21 +27,7 @@ import {
 // INVALID_INPUT. The catalog's own existence is the next step's job: Catalogs is
 // a different table, and one APPSYNC_JS function makes one datastore call.
 export function request(ctx) {
-    const profileId = stashedProfileId(ctx);
-    const campaignId = stashedCampaignId(ctx);
-
-    if (!profileId || !campaignId) {
-        // The owner gate already proved a located campaign; reaching here means
-        // the pipeline was rewired, not that the caller is wrong.
-        util.error('Campaign not found', 'NOT_FOUND');
-        return;
-    }
-
-    return {
-        operation: 'GetItem',
-        key: util.dynamodb.toMapValues({ profileId: profileId, campaignId: campaignId }),
-        consistentRead: true
-    };
+    return getCampaignPublicSettings(ctx);
 }
 
 export function response(ctx) {
