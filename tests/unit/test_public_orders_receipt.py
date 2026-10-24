@@ -39,8 +39,6 @@ from src.utils.errors import AppError, ErrorCode
 
 CAMPAIGN_ID = "CAMPAIGN#c1"
 ORDER_SUFFIX = "s1"
-ORDER_ID = f"ORDER#{ORDER_SUFFIX.split('#')[0]}"  # computed below in _order_id()
-
 
 def _order_id(campaign_id: str = CAMPAIGN_ID, suffix: str = ORDER_SUFFIX) -> str:
     return f"ORDER#{campaign_id.removeprefix('CAMPAIGN#')}#{suffix}"

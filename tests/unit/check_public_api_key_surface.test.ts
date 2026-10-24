@@ -354,9 +354,11 @@ describe("public API key directive surface (schema.graphql)", () => {
     expect(SCHEMA).not.toMatch(/^\s*extend\s+type\s+(Query|Mutation)\b/m);
   });
 
-  // GAP - do not fill in with an assumption. The multi-auth spike measured the
-  // field and type rules (pinned above; live-run assertions are deferred to the
-  // later integration/E2E slice of the public-orders plan) but NOT the
-  // input-type rule, so it stays unpinned until someone verifies it.
-  test.skip("input types need no auth directive (still unverified)", () => {});
+  test("input types need no auth directive", () => {
+    const inputDecls = (SCHEMA.match(/^input\s+\w+.*$/gm) || []);
+    expect(inputDecls.length).toBeGreaterThan(0);
+    for (const decl of inputDecls) {
+      expect(decl).not.toMatch(/@aws_/);
+    }
+  });
 });
