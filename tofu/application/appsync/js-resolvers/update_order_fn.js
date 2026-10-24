@@ -1,6 +1,7 @@
 import { util } from '@aws-appsync/utils';
 import { validatePhone, validateAddress } from './lib/validation.js';
 import { enrichLineItems } from './lib/line_items.js';
+import { normalizeIdOrPrefix } from './lib/ids.js';
 
 // The order lifecycle slice: the seller's "payment confirmed" transition.
 // Deliberately narrow, and the only lifecycle write this resolver honors:
@@ -51,10 +52,12 @@ function applyStatusUpdate(input, order, updates, exprValues, exprNames, ctx) {
     exprValues[':status'] = input.status;
     exprNames['#status'] = 'status';
     
-    // SEC-13: record confirmation attribution
-    // ctx.identity.sub is the Cognito user sub (unprefixed). Normalize to ACCOUNT# prefix.
+    // SEC-13: record confirmation attribution. ctx.identity.sub is the
+    // Cognito user sub; normalizeIdOrPrefix accepts both prefixed and
+    // unprefixed spellings at the boundary and keeps a well-formed placeholder
+    // if the sub is absent (#534: lib/ids.js owns the prefix rule).
     const callerSub = ctx.identity && ctx.identity.sub ? ctx.identity.sub : '';
-    const confirmedBy = callerSub.startsWith('ACCOUNT#') ? callerSub : 'ACCOUNT#' + callerSub;
+    const confirmedBy = normalizeIdOrPrefix(callerSub, 'ACCOUNT#');
     updates.push('#confirmedBy = :confirmedBy');
     exprValues[':confirmedBy'] = confirmedBy;
     exprNames['#confirmedBy'] = 'confirmedBy';

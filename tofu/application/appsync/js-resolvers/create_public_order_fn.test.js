@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { request, response } from './create_public_order_fn.js';
-import { PUBLIC_ORDER_CAP } from './lib/public_order.js';
 
 function makeStash(overrides = {}) {
     return Object.assign(
@@ -43,19 +42,31 @@ describe('create_public_order request', () => {
     });
 
     it('uses TransactWriteItems with ConditionCheck on campaign and PutItem on orders', () => {
-        const req = request({ stash: makeStash() });
+        const stash = makeStash();
+        const req = request({ stash });
         assert.strictEqual(req.operation, 'TransactWriteItems');
         assert.strictEqual(req.transactItems.length, 2);
-        
-        // First item: ConditionCheck on Campaigns table
+
+        // ARCH-1: each transact item MUST carry its own operation field -
+        // AppSync rejects a TransactWriteItems item without one.
+        // First item: ConditionCheck on Campaigns table (campaign-existence guard)
         const conditionCheck = req.transactItems[0];
+        assert.strictEqual(conditionCheck.operation, 'ConditionCheck');
         assert.strictEqual(conditionCheck.table, 'Campaigns');
         assert.deepStrictEqual(conditionCheck.key, { profileId: 'PROFILE#p1', campaignId: 'CAMPAIGN#c1' });
         assert.strictEqual(conditionCheck.condition.expression, 'attribute_exists(campaignId)');
-        
+
         // Second item: PutItem on Orders table
         const putItem = req.transactItems[1];
+        assert.strictEqual(putItem.operation, 'PutItem');
         assert.strictEqual(putItem.table, 'Orders');
+        assert.strictEqual(putItem.key.orderId, 'ORDER#c1#auto-generated-id');
+        assert.strictEqual(putItem.key.campaignId, 'CAMPAIGN#c1');
+
+        // The exact row written is stashed for response()/the email step,
+        // because a TransactWriteItems result carries only item keys.
+        assert.strictEqual(stash.orderItem.orderId, 'ORDER#c1#auto-generated-id');
+        assert.strictEqual(stash.orderItem.receiptToken, 'auto-generated-id');
         const item = putItem.attributeValues;
         assert.strictEqual(item.orderId, 'ORDER#c1#auto-generated-id');
         assert.strictEqual(item.campaignId, 'CAMPAIGN#c1');
@@ -77,10 +88,14 @@ describe('create_public_order request', () => {
 });
 
 describe('create_public_order response', () => {
-    it('maps TransactionCanceledException to the limit error (campaign deleted)', () => {
+    it('maps TransactionCanceledException to NOT_FOUND (campaign deleted between increment and write)', () => {
+        // ARCH-1: a cancellation at this step means the ConditionCheck found no
+        // campaign row - the deleteCampaign raced in after step 6. No order row
+        // was written, and the cap is enforced only by step 6, so this is
+        // NOT_FOUND, not a limit error.
         assert.throws(
             () => response({ error: { type: 'DynamoDB:TransactionCanceledException', message: 'Transaction cancelled' } }),
-            /PUBLIC_ORDER_LIMIT_EXCEEDED: This campaign has reached its public order limit/
+            /NOT_FOUND: Campaign is no longer available/
         );
     });
 
@@ -88,17 +103,20 @@ describe('create_public_order response', () => {
         assert.throws(() => response({ error: { message: 'boom', type: 'DynamoDB:InternalServerError' } }), /DynamoDB:InternalServerError: boom/);
     });
 
-    it('composes the receipt from the written row (second element of TransactWriteItems result)', () => {
+    it('composes the receipt from the stashed written row (TransactWriteItems result carries only keys)', () => {
+        // A successful TransactWriteItems returns {keys: [...], cancellationReasons: null} -
+        // written attributes are NOT returned, so response() reuses the row
+        // request() stashed (atomicity makes the local copy exactly what stored).
         const ctx = {
-            result: [
-                {}, // ConditionCheck result
-                {
+            result: { keys: [{ profileId: 'PROFILE#p1', campaignId: 'CAMPAIGN#c1' }, { campaignId: 'CAMPAIGN#c1', orderId: 'ORDER#c1#auto-generated-id' }], cancellationReasons: null },
+            stash: {
+                orderItem: {
                     orderId: 'ORDER#c1#auto-generated-id',
                     receiptToken: 'auto-generated-id',
                     campaignId: 'CAMPAIGN#c1',
                     totalAmount: 0.1,
-                }
-            ],
+                },
+            },
         };
         assert.deepStrictEqual(response(ctx), {
             orderId: 'ORDER#c1#auto-generated-id',
@@ -109,7 +127,7 @@ describe('create_public_order response', () => {
         });
     });
 
-    it('returns INTERNAL_ERROR when result array is missing the order item', () => {
-        assert.throws(() => response({ result: [{}] }), /INTERNAL_ERROR: Order could not be written/);
+    it('returns INTERNAL_ERROR when the stash carries no written order row', () => {
+        assert.throws(() => response({ result: { keys: [] }, stash: {} }), /INTERNAL_ERROR: Order could not be written/);
     });
 });

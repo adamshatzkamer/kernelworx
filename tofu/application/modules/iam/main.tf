@@ -904,6 +904,7 @@ data "aws_iam_policy_document" "appsync_dynamodb" {
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
+      "dynamodb:ConditionCheck",
       "dynamodb:Query",
       "dynamodb:BatchGetItem",
       "dynamodb:BatchWriteItem",

@@ -2,7 +2,6 @@ import { util } from '@aws-appsync/utils';
 import { stripIdPrefix } from './lib/ids.js';
 import { enrichLineItems } from './lib/line_items.js';
 import { composePublicOrderReceipt } from './lib/public_order.js';
-import { PUBLIC_ORDER_CAP } from './lib/public_order.js';
 
 // Step 7 of the publicCreateOrder pipeline (#679 write slice, spec §5.3):
 // write the order. A CLONE of create_order_fn.js that shares its price and
@@ -37,14 +36,27 @@ import { PUBLIC_ORDER_CAP } from './lib/public_order.js';
 // The increment_public_order_count step (step 6) increments the campaign's
 // publicOrderCount with a condition that the campaign row exists. However,
 // the campaign could be deleted between step 6 and this step (step 7), leaving
-// an orphaned order under a deleted campaign. To prevent this, we use a
-// TransactWriteItems with two operations:
+// an orphaned order under a deleted campaign. To prevent this, the write runs
+// as a TransactWriteItems with two operations (each transact item MUST carry
+// its own `operation` field - AppSync rejects an item without one):
 //   1. ConditionCheck on the campaign table: verifies the campaign item still
 //      exists (attribute_exists(campaignId) on the campaign's partition key).
+//      Requires the `dynamodb:ConditionCheck` IAM permission on the campaigns
+//      table (granted on the shared AppSync datasource role in iam/main.tf).
 //   2. PutItem on the orders table: writes the order row.
 // Both operations succeed or fail atomically, so a concurrent campaign deletion
-// (which deletes the campaign item) causes the transaction to fail with
-// TransactionCanceledException, and no order row is written.
+// (which deletes the campaign item) cancels the transaction with
+// TransactionCanceledException and no order row is written. The cap itself is
+// still enforced only by step 6 - this transaction's ConditionCheck guards
+// existence, not the count, so a cancellation here means the campaign is
+// gone and surfaces as NOT_FOUND, never as a limit error.
+//
+// Result-shape note: a successful TransactWriteItems returns
+// {keys: [<each item's key>], cancellationReasons: null} - the written
+// ATTRIBUTES are not returned (unlike a standalone PutItem). The order row
+// composed below is therefore stashed on ctx.stash by request() and reused by
+// response(): the transaction is atomic, so the locally built item is by
+// construction exactly what was stored - including the minted receiptToken.
 export function request(ctx) {
     const stash = ctx.stash || {};
     const campaign = stash.campaign;
@@ -120,10 +132,16 @@ export function request(ctx) {
         }
     }
 
-    // The campaign item's partition key is the profileId. We need to verify
-    // the campaign still exists before writing the order. Use a transaction
-    // with a ConditionCheck on the campaign table and the PutItem on the
-    // orders table.
+    // Stash the exact row this request writes so response() can hand it to the
+    // receipt composer and the best-effort email step: a TransactWriteItems
+    // result carries only item keys, not the written attributes.
+    if (ctx.stash) {
+        ctx.stash.orderItem = orderItem;
+    }
+
+    // The campaign item's partition key is the profileId. We verify the
+    // campaign still exists before writing the order: a ConditionCheck on the
+    // campaign table plus the PutItem on the orders table, atomically.
     return {
         operation: 'TransactWriteItems',
         transactItems: [
@@ -132,6 +150,7 @@ export function request(ctx) {
                 // Campaigns table. The campaign table's key is {profileId, campaignId}.
                 // A concurrent deleteCampaign deletes this item, causing the
                 // ConditionCheck to fail and the entire transaction to cancel.
+                operation: 'ConditionCheck',
                 table: 'Campaigns',
                 key: util.dynamodb.toMapValues({ profileId: profileId, campaignId: campaignId }),
                 condition: {
@@ -140,7 +159,9 @@ export function request(ctx) {
             },
             {
                 // PutItem: write the order row.
+                operation: 'PutItem',
                 table: 'Orders',
+                key: util.dynamodb.toMapValues({ campaignId: campaignId, orderId: orderId }),
                 attributeValues: util.dynamodb.toMapValues(orderItem)
             }
         ]
@@ -149,36 +170,31 @@ export function request(ctx) {
 
 export function response(ctx) {
     if (ctx.error) {
-        // TransactWriteItems cancellation due to ConditionCheck failure on the
-        // campaign table means the campaign was deleted concurrently. Surface
-        // the same error the increment step uses so the pipeline aborts cleanly.
+        // A cancellation at this step means the ConditionCheck found no
+        // campaign row: the campaign was deleted between step 6's increment
+        // and this write. No order row was written (the transaction is
+        // atomic). The cap is enforced only by step 6, so this is a
+        // NOT_FOUND, not a limit error.
         if (ctx.error.type === 'DynamoDB:TransactionCanceledException') {
-            util.error('This campaign has reached its public order limit', 'PUBLIC_ORDER_LIMIT_EXCEEDED');
+            util.error('Campaign is no longer available', 'NOT_FOUND');
             return null;
         }
         util.error(ctx.error.message, ctx.error.type);
         return null;
     }
 
-    // TransactWriteItems returns an array of results, one per transactItem.
-    // The second item (index 1) is the PutItem result for the order.
-    const orderResult = ctx.result && ctx.result[1];
+    // request() stashed the exact row this transaction wrote (the
+    // TransactWriteItems result carries only item keys, not attributes).
+    const orderResult = ctx.stash && ctx.stash.orderItem;
     if (!orderResult) {
         util.error('Order could not be written', 'INTERNAL_ERROR');
         return null;
     }
 
-    // Stash the exact stored row for the best-effort email step (spec §5.3
-    // step 8): the mailer is payload-driven and never re-reads orders, so the
+    // The stashed row is what the best-effort email step (spec §5.3 step 8)
+    // reads: the mailer is payload-driven and never re-reads orders, so the
     // enriched line items, totals, buyer contact, and the minted receiptToken
     // travel to it through the stash. The receipt composed below stays the
     // step result (it is what the pipeline root passes through).
-    if (ctx.stash) {
-        ctx.stash.orderItem = orderResult;
-    }
-
-    // PutItem returns the written item, so the receipt is composed from what was
-    // actually stored - including the minted receiptToken - rather than from a
-    // second read that could race.
     return composePublicOrderReceipt(orderResult);
 }
