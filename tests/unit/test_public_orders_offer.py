@@ -371,6 +371,35 @@ class TestBuildOffer:
         assert offer_result["campaignName"] == "Fall Sale"
         assert offer_result["products"][0]["productName"] == "W"
         assert offer_result["paymentMethods"][0]["name"] == "Venmo"
+        # ARCH-7-BE: remainingOrders and isSoldOut
+        assert offer_result["remainingOrders"] == 500  # no publicOrderCount on campaign
+        assert offer_result["isSoldOut"] is False
+
+    def test_remaining_orders_and_sold_out(self, campaigns_table: Any) -> None:
+        # Need to override the table in the TableAccessor since the handler uses
+        # tables.campaigns (which reads from env var), not the moto table directly.
+        from src.utils.dynamodb import override_table
+        
+        # Campaign with publicOrderCount = 10
+        override_table("campaigns", campaigns_table)
+        campaigns_table.put_item(Item=_campaign_item(_settings(), publicOrderCount=10))
+        offer_result = _build_offer(_event({"campaignId": "c1", "token": "tok"}))
+        assert offer_result["remainingOrders"] == 490
+        assert offer_result["isSoldOut"] is False
+
+        # Campaign at cap
+        campaigns_table.put_item(Item=_campaign_item(_settings(), publicOrderCount=500))
+        offer_result = _build_offer(_event({"campaignId": "c1", "token": "tok"}))
+        assert offer_result["remainingOrders"] == 0
+        assert offer_result["isSoldOut"] is True
+
+        # Campaign over cap (should not happen but handle gracefully)
+        campaigns_table.put_item(Item=_campaign_item(_settings(), publicOrderCount=600))
+        offer_result = _build_offer(_event({"campaignId": "c1", "token": "tok"}))
+        assert offer_result["remainingOrders"] == 0
+        assert offer_result["isSoldOut"] is True
+
+        override_table("campaigns", None)
 
     def test_empty_campaign_id(self) -> None:
         with pytest.raises(AppError) as exc:
