@@ -164,7 +164,11 @@ describe('update_order_fn status transition', () => {
     // `status` is a DynamoDB reserved word: the attribute must be addressed
     // through the expression-attribute-name map, never bare in the expression
     // (a bare SET status = ... fails at runtime with "reserved keyword").
-    assert.deepStrictEqual(result.update.expressionNames, { '#status': 'status' });
+    assert.deepStrictEqual(result.update.expressionNames, {
+        '#status': 'status',
+        '#confirmedBy': 'confirmedBy',
+        '#confirmedAt': 'confirmedAt'
+    });
     assert.ok(
         !/(^|[^#:])\bstatus\b/.test(result.update.expression),
         `no bare status attribute in: ${result.update.expression}`,
@@ -173,6 +177,11 @@ describe('update_order_fn status transition', () => {
     // the provenance attributes.
     assert.doesNotMatch(result.update.expression, /receiptToken/);
     assert.doesNotMatch(result.update.expression, /orderSource/);
+    // SEC-13: confirmedBy and confirmedAt must be set for CONFIRMED transitions
+    assert.match(result.update.expression, /#confirmedBy = :confirmedBy/);
+    assert.match(result.update.expression, /#confirmedAt = :confirmedAt/);
+    assert.ok(typeof result.update.expressionValues[':confirmedBy'] === 'string' && result.update.expressionValues[':confirmedBy'].startsWith('ACCOUNT#'));
+    assert.ok(typeof result.update.expressionValues[':confirmedAt'] === 'string' && result.update.expressionValues[':confirmedAt'].includes('T'));
   });
 
   it('rejects status on an order that is not a public order', () => {
@@ -218,6 +227,9 @@ describe('update_order_fn status transition', () => {
         `an ordinary edit must never write ${attribute}`,
       );
     }
+    // SEC-13: confirmedBy and confirmedAt must NOT be set for non-status edits
+    assert.doesNotMatch(result.update.expression, /confirmedBy/);
+    assert.doesNotMatch(result.update.expression, /confirmedAt/);
   });
 
   it('performs no identity check of its own (authorization lives in the pipeline)', () => {
@@ -225,11 +237,15 @@ describe('update_order_fn status transition', () => {
     // check_share_permissions before this function (pinned by
     // tests/unit/test_appsync_pipeline_functions.py). This write step must not
     // grow a second, divergent authorization path.
-    const ctx = { stash: { order: publicOrder, catalog: null }, args: { input: { status: 'CONFIRMED' } } };
+    const ctx = { stash: { order: publicOrder, catalog: null }, args: { input: { status: 'CONFIRMED' } }, identity: { sub: 'user-123' } };
 
     const result = request(ctx);
     assert.match(result.update.expression, /#status = :status/);
-    assert.deepStrictEqual(result.update.expressionNames, { '#status': 'status' });
+    assert.deepStrictEqual(result.update.expressionNames, {
+        '#status': 'status',
+        '#confirmedBy': 'confirmedBy',
+        '#confirmedAt': 'confirmedAt'
+    });
   });
 });
 

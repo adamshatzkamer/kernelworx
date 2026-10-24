@@ -486,12 +486,26 @@ def _build_offer(event: Dict[str, Any]) -> Dict[str, Any]:
         payment_methods=len(payment_methods),
     )
 
+    # ARCH-7-BE: add remainingOrders and isSoldOut to the offer
+    # The campaign's publicOrderCount is the lifetime count (includes deleted orders).
+    # The cap is 500 (PUBLIC_ORDER_CAP).
+    public_order_count = campaign.get("publicOrderCount")
+    if isinstance(public_order_count, (int, Decimal)):
+        count = int(public_order_count)
+        remaining = max(0, 500 - count)
+        is_sold_out = count >= 500
+    else:
+        remaining = 500
+        is_sold_out = False
+
     return {
         "sellerName": profile.get("sellerName") if isinstance(profile.get("sellerName"), str) else "",
         "campaignId": strip_prefix(campaign.get("campaignId")),
         "campaignName": campaign.get("campaignName") if isinstance(campaign.get("campaignName"), str) else "",
         "products": products,
         "paymentMethods": payment_methods,
+        "remainingOrders": remaining,
+        "isSoldOut": is_sold_out,
     }
 
 

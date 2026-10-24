@@ -1,6 +1,7 @@
 import { util } from '@aws-appsync/utils';
 import { validatePhone, validateAddress } from './lib/validation.js';
 import { enrichLineItems } from './lib/line_items.js';
+import { normalizeIdOrPrefix } from './lib/ids.js';
 
 // The order lifecycle slice: the seller's "payment confirmed" transition.
 // Deliberately narrow, and the only lifecycle write this resolver honors:
@@ -19,7 +20,12 @@ import { enrichLineItems } from './lib/line_items.js';
 // through an expression-attribute-name placeholder (#status): a bare
 // `SET status = :status` fails at runtime with "Attribute name is a reserved
 // keyword" - invisible to unit tests that only read the expression string.
-function applyStatusUpdate(input, order, updates, exprValues, exprNames) {
+//
+// SEC-13: when confirming an order, also record confirmedBy (the confirming
+// account's ID, normalized with ACCOUNT# prefix) and confirmedAt (ISO timestamp).
+// Both prefixed (ACCOUNT#...) and unprefixed spellings are accepted at the
+// boundary; we normalize to the prefixed form for storage.
+function applyStatusUpdate(input, order, updates, exprValues, exprNames, ctx) {
     // Key presence, not the value: this runtime can surface an omitted nullable
     // input field as a null value (the #506 lesson from paymentMethod), and an
     // explicit null must never clear a CONFIRMED order's status.
@@ -45,6 +51,21 @@ function applyStatusUpdate(input, order, updates, exprValues, exprNames) {
     updates.push('#status = :status');
     exprValues[':status'] = input.status;
     exprNames['#status'] = 'status';
+    
+    // SEC-13: record confirmation attribution. ctx.identity.sub is the
+    // Cognito user sub; normalizeIdOrPrefix accepts both prefixed and
+    // unprefixed spellings at the boundary and keeps a well-formed placeholder
+    // if the sub is absent (#534: lib/ids.js owns the prefix rule).
+    const callerSub = ctx.identity && ctx.identity.sub ? ctx.identity.sub : '';
+    const confirmedBy = normalizeIdOrPrefix(callerSub, 'ACCOUNT#');
+    updates.push('#confirmedBy = :confirmedBy');
+    exprValues[':confirmedBy'] = confirmedBy;
+    exprNames['#confirmedBy'] = 'confirmedBy';
+    
+    updates.push('#confirmedAt = :confirmedAt');
+    exprValues[':confirmedAt'] = util.time.nowISO8601();
+    exprNames['#confirmedAt'] = 'confirmedAt';
+    
     return true;
 }
 
@@ -147,7 +168,7 @@ export function request(ctx) {
         exprValues[':notes'] = input.notes;
     }
 
-    if (!applyStatusUpdate(input, order, updates, exprValues, exprNames)) {
+    if (!applyStatusUpdate(input, order, updates, exprValues, exprNames, ctx)) {
         return;
     }
 

@@ -38,6 +38,14 @@ enum CatalogType {
   USER_CREATED
 }
 
+"""The state of a campaign's public order surface."""
+enum CampaignState {
+  """Public orders are enabled and the campaign is active."""
+  OK
+  """Public orders are disabled or the campaign is inactive."""
+  INACTIVE
+}
+
 # ============================================================================
 # Core Types
 # ============================================================================
@@ -294,6 +302,10 @@ type Order {
   notes: String
   """The order's payment-verification state. Absent on pre-feature rows; the public path always writes NEW."""
   status: OrderStatus
+  """The account ID of the user who confirmed the order (for CONFIRMED orders)."""
+  confirmedBy: ID
+  """When the order was confirmed by the seller (for CONFIRMED orders)."""
+  confirmedAt: AWSDateTime
   """When the order was created."""
   createdAt: AWSDateTime!
   """When the order was last updated."""
@@ -492,7 +504,7 @@ type PublicOrderSettings {
   enabled: Boolean!
   campaignId: ID!
   campaignName: String!
-  campaignState: String!              # "OK" | "INACTIVE"
+  campaignState: CampaignState!      # "OK" | "INACTIVE"
   allowedPaymentMethods: [String!]!
   shareToken: String                  # Exposed only to the profile owner
   publicOrderCount: Int               # Lifetime count (includes deleted orders)
@@ -512,6 +524,10 @@ type PublicOrderOffer @aws_api_key {
   products: [PublicProduct!]!
   """The allowlisted payment methods that still exist on the account, each with a short-lived pre-signed QR image URL when a QR was uploaded."""
   paymentMethods: [PublicPaymentMethod!]!
+  """Remaining order slots before the campaign reaches its public order cap (500). Null if the campaign has no cap."""
+  remainingOrders: Int
+  """True when the campaign has reached its public order cap (500)."""
+  isSoldOut: Boolean
 }
 
 """A catalog product as the public order page sees it. Mirrors Product's field names verbatim: Product itself carries @aws_cognito_user_pools and cannot be returned to an API-key caller."""
