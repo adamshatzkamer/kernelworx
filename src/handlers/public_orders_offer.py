@@ -32,34 +32,39 @@ campaign id cannot tell "never enabled" from "bad token". The share token is
 scrubbed from any unexpected-exception message before it can reach a log line.
 """
 
-import logging
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple, cast
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 from boto3.dynamodb.conditions import Key
 
 try:  # pragma: no cover
-    from handlers.public_order_emails import SEND_ORDER_EMAILS_OPERATION, handle_send_order_emails
-    from handlers.public_orders_receipt import RECEIPT_FIELD, handle_receipt
-    from utils import payment_methods as _payment_methods
     from utils.appsync_types import as_float
     from utils.dynamodb import tables
     from utils.errors import AppError, ErrorCode
-    from utils.ids import ensure_campaign_id, ensure_catalog_id, ensure_profile_id, strip_prefix
+    from utils.ids import (
+        ensure_account_id,
+        ensure_campaign_id,
+        ensure_catalog_id,
+        ensure_profile_id,
+        strip_prefix,
+    )
     from utils.logging import get_logger, redact_secrets
     from utils.payment_methods import RESERVED_NAMES, generate_presigned_get_url
     from utils.tokens import constant_time_token_match
 except ModuleNotFoundError:  # pragma: no cover
-    from ..utils import payment_methods as _payment_methods
     from ..utils.appsync_types import as_float
     from ..utils.dynamodb import tables
     from ..utils.errors import AppError, ErrorCode
-    from ..utils.ids import ensure_campaign_id, ensure_catalog_id, ensure_profile_id, strip_prefix
+    from ..utils.ids import (
+        ensure_account_id,
+        ensure_campaign_id,
+        ensure_catalog_id,
+        ensure_profile_id,
+        strip_prefix,
+    )
     from ..utils.logging import get_logger, redact_secrets
     from ..utils.payment_methods import RESERVED_NAMES, generate_presigned_get_url
     from ..utils.tokens import constant_time_token_match
-    from .public_order_emails import SEND_ORDER_EMAILS_OPERATION, handle_send_order_emails
-    from .public_orders_receipt import RECEIPT_FIELD, handle_receipt
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..utils.handlers import lambda_handler as with_error_handling
@@ -68,6 +73,14 @@ else:  # pragma: no cover
         from utils.handlers import lambda_handler as with_error_handling
     except ModuleNotFoundError:
         from ..utils.handlers import lambda_handler as with_error_handling
+
+# The dispatcher for every public-orders surface lives in ``public_orders_router``
+# (PRIN-5); the deployed entry point is assembled from it below, because Terraform
+# wires ``handlers.public_orders_offer.handler``
+# (``tofu/application/modules/lambda/main.tf``) and the generic-failure message
+# that names this surface is defined here. The router imports this module only
+# inside its own function, which is what keeps the pair acyclic.
+from .public_orders_router import route as _route  # noqa: E402
 
 # Pre-signed QR image lifetime, matching the authenticated batch path (#330).
 # A minted URL stays fetchable this long after a disable or a token rotation;
@@ -81,9 +94,14 @@ OFFER_UNAVAILABLE_MESSAGE = "Offer not available"
 
 # The field this module answers. The public-orders Lambda routes every public
 # field through the same unit resolver, so a new public field means a new branch
-# in ``handler`` below AND a matching entry in the hand-maintained
+# in ``public_orders_router.handler`` AND a matching entry in the hand-maintained
 # EXPECTED_UNIT_FIELDS map of tests/unit/test_lambda_unit_resolver_wiring.py.
 OFFER_FIELD = "publicGetOrderOffer"
+
+# The deployed Lambda entry point: the router's dispatcher wrapped with this
+# surface's generic-failure message. The attribute name must stay here — that is
+# the handler string Terraform registers.
+handler = with_error_handling(error_message=OFFER_UNAVAILABLE_MESSAGE)(_route)
 
 
 def _offer_unavailable() -> AppError:
@@ -113,8 +131,14 @@ def _load_campaign(db_campaign_id: str, logger: Any) -> Dict[str, Any]:
         Limit=2,
     )
     items = [item for item in response.get("Items", []) if isinstance(item, dict)]
-    if len(items) != 1:
-        # Zero: no such campaign. Two: a corrupt projection. Neither is served.
+    if not items:
+        # Zero projections is the NORMAL shape of a stale share link or an
+        # anonymous token probe, not an index anomaly, so it logs at INFO; only
+        # a corrupt multi-projection read is worth a WARNING.
+        logger.info("No campaignId-index projection", campaign_id=db_campaign_id)
+        raise _offer_unavailable()
+    if len(items) > 1:
+        # Two projections for one campaign id is a corrupt index; it is not served.
         logger.warning("Ambiguous campaignId-index projection", campaign_id=db_campaign_id, projections=len(items))
         raise _offer_unavailable()
 
@@ -312,8 +336,18 @@ def _public_products(catalog: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _stored_methods(owner_account_id: Any) -> Dict[str, Dict[str, Any]]:
-    """The account's stored payment methods keyed by lowercased name."""
-    response = tables.accounts.get_item(Key={"accountId": owner_account_id})
+    """The account's stored payment methods keyed by lowercased name.
+
+    The id is normalized before it becomes a partition key: the accounts table
+    stores the ``ACCOUNT#``-prefixed form, while a profile row's
+    ``ownerAccountId`` can carry the bare legacy spelling, and a verbatim read
+    for that spelling returns nothing and silently empties the offer's payment
+    methods. Both spellings resolve to the same row; neither is rejected.
+    """
+    account_id = ensure_account_id(owner_account_id) if isinstance(owner_account_id, str) else None
+    if not account_id:
+        return {}
+    response = tables.accounts.get_item(Key={"accountId": account_id})
     account = response.get("Item")
     preferences = account.get("preferences") if isinstance(account, dict) else None
     methods = preferences.get("paymentMethods") if isinstance(preferences, dict) else None
@@ -336,28 +370,6 @@ def _extract_s3_key(value: str) -> str:
         return value
     path_start = value.find("/", 8)  # skip the scheme, then the host
     return value[path_start + 1 :] if path_start > 0 else value
-
-
-@contextmanager
-def _suppress_logged_value(value: str) -> Iterator[None]:
-    """Drop log records that would echo ``value`` while the block runs.
-
-    ``generate_presigned_get_url`` logs its own success line with ``s3_key``
-    embedded. The public offer must never put a stored object key in a log, so a
-    filter on that module's logger drops any record whose rendered text carries
-    the key for the duration of the call. ``value`` is the extracted key, which
-    the caller has already proven non-empty.
-    """
-    helper_logger = logging.getLogger(_payment_methods.__name__)
-
-    def _drop(record: logging.LogRecord) -> bool:
-        return value not in str(record.getMessage())
-
-    helper_logger.addFilter(_drop)
-    try:
-        yield
-    finally:
-        helper_logger.removeFilter(_drop)
 
 
 def _signed_qr_url(owner_account_id: Any, method: Dict[str, Any], logger: Any) -> Optional[str]:
@@ -383,14 +395,21 @@ def _signed_qr_url(owner_account_id: Any, method: Dict[str, Any], logger: Any) -
         # and would take its no-key probe path.
         return None
     try:
-        with _suppress_logged_value(s3_key):
-            signed = generate_presigned_get_url(
-                strip_prefix(owner_account_id),
-                method.get("name") if isinstance(method.get("name"), str) else "",
-                s3_key=s3_key,
-                expiry_seconds=QR_URL_EXPIRY_SECONDS,
-            )
-            return cast(Optional[str], signed)
+        # No log-suppression wrapper around the call. The helper's own success
+        # line carries ``s3_key``, and that key is not a secret on this path:
+        # the pre-signed URL returned to the buyer embeds the same key, and the
+        # values that ARE secrets (buyer PII, the stored ``qrCodeUrl`` attribute)
+        # are redacted structurally by field name in ``utils.logging``. The old
+        # runtime ``logging.Filter`` attached to the helper module's logger
+        # mutated another module's global state for the duration of each call
+        # and raced with concurrent invocations in the same container.
+        signed = generate_presigned_get_url(
+            strip_prefix(owner_account_id),
+            method.get("name") if isinstance(method.get("name"), str) else "",
+            s3_key=s3_key,
+            expiry_seconds=QR_URL_EXPIRY_SECONDS,
+        )
+        return cast(Optional[str], signed)
     except AppError as exc:
         if exc.error_code != ErrorCode.FORBIDDEN:
             raise
@@ -399,6 +418,52 @@ def _signed_qr_url(owner_account_id: Any, method: Dict[str, Any], logger: Any) -
             method=method.get("name"),
         )
         return None
+
+
+def _allowlist_pairs(blob: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """The allowlist as ``(display name, lookup key)`` pairs; non-strings dropped.
+
+    A non-list ``allowedPaymentMethods`` (a hand-edited or partially migrated
+    blob) is an empty allowlist, not an error.
+    """
+    allowed = blob.get("allowedPaymentMethods")
+    names = [name for name in allowed if isinstance(name, str)] if isinstance(allowed, list) else []
+    return [(name, name.strip().lower()) for name in names]
+
+
+def _stored_for_allowlist(profile: Dict[str, Any], pairs: List[Tuple[str, str]]) -> Dict[str, Dict[str, Any]]:
+    """The account's stored methods, read only when the allowlist can name one.
+
+    The accounts-table read is deferred (PERF-6): ``Cash`` and ``Check`` are
+    global pseudo-methods that never live in ``preferences.paymentMethods``
+    (``_validate_name`` rejects reserved names), so a cash/check-only allowlist
+    cannot hit a stored entry at all, and reading the account for it would add a
+    DynamoDB round trip to every such offer.
+    """
+    if all(key in RESERVED_NAMES for _, key in pairs):
+        return {}
+    return _stored_methods(profile.get("ownerAccountId"))
+
+
+def _shaped_method(
+    profile: Dict[str, Any], name: str, key: str, stored: Dict[str, Dict[str, Any]], logger: Any
+) -> Optional[Dict[str, Any]]:
+    """Shape one allowlisted method for the offer, or None when it no longer exists.
+
+    A stored method keeps its own display name and gets its QR image pre-signed.
+    A reserved pseudo-method resolves to the allowlisted spelling with no QR
+    image. Anything else is a method the seller allowlisted and has since
+    deleted, so it drops out.
+    """
+    method = stored.get(key)
+    if method:
+        return {
+            "name": method["name"],
+            "qrCodeUrl": _signed_qr_url(profile.get("ownerAccountId"), method, logger),
+        }
+    if key in RESERVED_NAMES:
+        return {"name": name, "qrCodeUrl": None}
+    return None
 
 
 def _public_payment_methods(profile: Dict[str, Any], blob: Dict[str, Any], logger: Any) -> List[Dict[str, Any]]:
@@ -413,26 +478,18 @@ def _public_payment_methods(profile: Dict[str, Any], blob: Dict[str, Any], logge
     entry — but they are NOT force-added: they appear only because the seller
     allowlisted them.
     """
-    allowed = blob.get("allowedPaymentMethods")
-    names = [name for name in allowed if isinstance(name, str)] if isinstance(allowed, list) else []
-    stored = _stored_methods(profile.get("ownerAccountId"))
+    pairs = _allowlist_pairs(blob)
+    stored = _stored_for_allowlist(profile, pairs)
 
     methods: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    for name in names:
-        key = name.strip().lower()
+    for name, key in pairs:
         if key in seen:
             continue
-        method = stored.get(key)
-        if method:
-            display_name = method["name"]
-            qr_code_url = _signed_qr_url(profile.get("ownerAccountId"), method, logger)
-        elif key in RESERVED_NAMES:
-            display_name, qr_code_url = name, None
-        else:
-            continue
         seen.add(key)
-        methods.append({"name": display_name, "qrCodeUrl": qr_code_url})
+        shaped = _shaped_method(profile, name, key, stored, logger)
+        if shaped is not None:
+            methods.append(shaped)
     return methods
 
 
@@ -504,33 +561,3 @@ def _run_guarded(event: Dict[str, Any]) -> Dict[str, Any]:
         raise
     except Exception as exc:
         raise redact_secrets(exc, token if isinstance(token, str) else None) from None
-
-
-@with_error_handling(error_message=OFFER_UNAVAILABLE_MESSAGE)
-def handler(event: Dict[str, Any], context: Any) -> Any:
-    """Entry point of the public-orders Lambda: route the email operation, then
-    dispatch the public read fields on ``info.fieldName``.
-
-    ``lambda_unit_resolver.js`` forwards the whole AppSync context, so the field
-    name is the discriminator for the reads (the pipeline invoke's ``operation``
-    field does not exist there). Identity is null on this auth mode and is never
-    read.
-
-    The pipeline's email invoke carries an explicit ``operation`` discriminator
-    instead of ``info`` (there is no field name in an Invoke payload); it
-    routes ahead of the unit-resolver fields. Each public field carries its own
-    decorated entry so the generic-failure message names its own surface
-    ("Offer not available" vs "Receipt not available"); the inner handler has
-    already turned an ``AppError`` into the ``__isError`` payload the unit
-    resolver maps to a GraphQL error code, so this dispatcher passes that
-    payload straight through.
-    """
-    if event.get("operation") == SEND_ORDER_EMAILS_OPERATION:
-        return handle_send_order_emails(event, context)
-
-    field_name = (event.get("info") or {}).get("fieldName", "")
-    if field_name == RECEIPT_FIELD:
-        return handle_receipt(event, context)
-    if field_name != OFFER_FIELD:
-        raise AppError(ErrorCode.INTERNAL_ERROR, f"Unsupported operation: {field_name}")
-    return _run_guarded(event)

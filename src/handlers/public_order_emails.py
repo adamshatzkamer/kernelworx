@@ -8,6 +8,10 @@ failure, so an email problem can never fail a durable order.
 
 Contract (spec §3.3/§6):
 
+- Buyer email goes FIRST. It is the critical path of the checkout, so the seller
+  half — including its owner-account ``GetItem`` — runs after it and inside its
+  own error boundary: a throttled DynamoDB read or a rejected seller send can
+  never keep the buyer's confirmation from being attempted.
 - Seller email is ALWAYS attempted, to the owner account's ``email`` attribute.
   If the account has no email, the seller send is skipped with a warning and
   the order still succeeds.
@@ -33,6 +37,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.config import Config
 
 try:  # pragma: no cover
     from utils.dynamodb import tables
@@ -65,6 +70,10 @@ _ENV_ORDER_TEMPLATE = "SES_ORDER_TEMPLATE"
 _ENV_ORDER_SELLER_TEMPLATE = "SES_ORDER_SELLER_TEMPLATE"
 _ENV_SITE_URL = "SITE_URL"
 
+# Explicit SES client timeouts (seconds) — see ``_ses_client``.
+_SES_CONNECT_TIMEOUT_SECONDS = 2
+_SES_READ_TIMEOUT_SECONDS = 3
+
 logger = get_logger(__name__)
 
 
@@ -85,8 +94,19 @@ def _ses_config() -> Optional[Dict[str, str]]:
 
 
 def _ses_client() -> Any:
-    """Construct the SES client — called only after the env contract passes."""
-    return boto3.client("ses")
+    """Construct the SES client — called only after the env contract passes.
+
+    The mailer runs inside the ``publicCreateOrder`` pipeline, so every second it
+    spends is a second the buyer's checkout is open, and a stalled response
+    provokes duplicate submissions (botocore's defaults allow ~15s per attempt).
+    The explicit short timeouts below bound that; the documented direction for
+    taking the sends out of the mutation entirely is an async mail queue
+    (EventBridge / SQS consumed by a separate Lambda), deliberately NOT built in
+    this pass.
+    """
+    return boto3.client(
+        "ses", config=Config(connect_timeout=_SES_CONNECT_TIMEOUT_SECONDS, read_timeout=_SES_READ_TIMEOUT_SECONDS)
+    )
 
 
 def _order_id(event: Dict[str, Any]) -> str:
@@ -108,7 +128,15 @@ def _absolute_receipt_url(config: Dict[str, str], receipt_url: Any) -> Optional[
 
 
 def _format_amount(value: Any) -> str:
-    """Money as a two-decimal string, matching the receipt page formatCurrency."""
+    """Money as a two-decimal string, matching the receipt page formatCurrency.
+
+    A missing amount renders as ``0.00``, not as the literal text of ``None``:
+    a stored row without a money attribute is a zero-dollar total, and
+    ``Decimal(str(None))`` would otherwise fall through to the as-stored branch
+    and print ``None`` into the buyer's email.
+    """
+    if value is None:
+        return "0.00"
     try:
         return f"{Decimal(str(value)):.2f}"
     except InvalidOperation, ValueError:
@@ -201,7 +229,14 @@ def _send_seller_email(client: Any, config: Dict[str, str], event: Dict[str, Any
     outcomes, never order failures.
     """
     order_id = str(order.get("orderId") or "")
-    seller_email = _seller_email_address(event.get("ownerAccountId"))
+    try:
+        seller_email = _seller_email_address(event.get("ownerAccountId"))
+    except Exception as exc:  # noqa: BLE001 - best-effort by contract
+        # The owner-account GetItem is ordinary DynamoDB work and can be
+        # throttled. It must not escape: the buyer's confirmation has already
+        # been attempted by the caller, and the seller note is best-effort.
+        logger.warning("Public order seller email failed", order_id=order_id, error_type=type(exc).__name__)
+        return False
     if seller_email is None:
         logger.warning("Public order seller email skipped: owner account has no email", order_id=order_id)
         return False
@@ -259,8 +294,11 @@ def handle_send_order_emails(event: Dict[str, Any], context: Any) -> Dict[str, A
         return {"configured": False, "sellerEmailSent": False, "confirmationEmailSent": False}
 
     client = _ses_client()
-    seller_email_sent = _send_seller_email(client, config, event, order)
+    # Buyer first: the confirmation is the buyer-facing half of the checkout, so
+    # nothing the seller half does — a throttled owner-account read included —
+    # can keep it from being attempted.
     _buyer_attempted, buyer_sent = _send_buyer_email(client, config, event, order)
+    seller_email_sent = _send_seller_email(client, config, event, order)
     result = {
         "configured": True,
         "sellerEmailSent": seller_email_sent,

@@ -6,6 +6,7 @@ readers enforce the schema types and bounds a resolver relies on before it
 indexes into the raw event.
 """
 
+import math
 from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Dict, Optional, cast
@@ -119,10 +120,15 @@ def as_float(value: Any) -> Optional[float]:
     Accepts int, float, str, and Decimal (the form DynamoDB returns). Any
     value that cannot be converted to float returns None rather than raising,
     so a single malformed stored value cannot fail an entire response.
+    ``Decimal("NaN")`` and the infinities ARE convertible by ``float()`` but
+    are not money: a NaN price or total survives every downstream comparison
+    and reaches the buyer as garbage, so non-finite values are rejected here
+    like any other malformed stored number (FUNC-17).
     """
     if not isinstance(value, (int, float, str, Decimal)):
         return None
     try:
-        return float(value)
+        number = float(value)
     except ValueError:
         return None
+    return number if math.isfinite(number) else None
