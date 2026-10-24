@@ -18,8 +18,9 @@ import { PublicOrderPage, NO_METHODS_MESSAGE, SOLD_OUT_MESSAGE } from '../src/pa
 import type { PublicOfferView } from '../src/components/public/publicOrderTypes';
 import type { usePublicOrderForm } from '../src/hooks/usePublicOrderForm';
 
-const { offerRef, formMock } = vi.hoisted(() => ({
+const { offerRef, errorRef, formMock } = vi.hoisted(() => ({
   offerRef: { current: null as PublicOfferView | null },
+  errorRef: { current: undefined as unknown },
   formMock: vi.fn(),
 }));
 
@@ -27,7 +28,7 @@ vi.mock('../src/hooks/usePublicOrderOffer', () => ({
   usePublicOrderOffer: () => ({
     offer: offerRef.current,
     loading: false,
-    error: undefined,
+    error: errorRef.current,
     refetch: vi.fn(),
   }),
 }));
@@ -71,8 +72,13 @@ const stubForm = (overrides: Record<string, unknown> = {}) => {
   } as unknown as ReturnType<typeof usePublicOrderForm>);
 };
 
-const renderPage = (offer: PublicOfferView | null, formOverrides: Record<string, unknown> = {}) => {
+const renderPage = (
+  offer: PublicOfferView | null,
+  formOverrides: Record<string, unknown> = {},
+  offerError: unknown = undefined,
+) => {
   offerRef.current = offer;
+  errorRef.current = offerError;
   stubForm(formOverrides);
   return render(
     <MemoryRouter initialEntries={['/o/c1/tok-1']}>
@@ -197,5 +203,29 @@ describe('PublicOrderPage form state passthrough', () => {
   it('shows the estimated total the form hook computed', () => {
     renderPage({ ...baseOffer });
     expect(screen.getByTestId('order-total')).toHaveTextContent('Estimated total: $0.00');
+  });
+});
+
+describe('PublicOrderPage refetch failure', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('keeps the form mounted and warns when a refetch failed but an offer is retained', () => {
+    // The buyer's typed form is still there; the refresh is what failed.
+    renderPage({ ...baseOffer }, {}, new Error('Network request failed'));
+    expect(screen.getByTestId('submit-order')).toBeInTheDocument();
+    expect(screen.getByText('Some of this page could not be refreshed.')).toBeInTheDocument();
+  });
+
+  it('does not warn when the read succeeded', () => {
+    renderPage({ ...baseOffer });
+    expect(screen.queryByText('Some of this page could not be refreshed.')).toBeNull();
+  });
+
+  it('shows no warning and no form when there is no offer at all', () => {
+    renderPage(null, {}, new Error('gone'));
+    expect(screen.queryByTestId('submit-order')).toBeNull();
+    expect(screen.queryByText('Some of this page could not be refreshed.')).toBeNull();
   });
 });
