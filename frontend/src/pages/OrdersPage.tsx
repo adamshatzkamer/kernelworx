@@ -40,7 +40,7 @@ import { LIST_ORDERS_BY_CAMPAIGN, DELETE_ORDER, GET_PROFILE, UPDATE_ORDER } from
 import { ensureProfileId, ensureCampaignId, ensureOrderId, toUrlId } from '../lib/ids';
 import { formatCurrency, formatPhoneNumber } from '../lib/api-utils';
 import { formatDisplayDate } from '../lib/date-utils';
-import type { GqlSellerProfile, GqlOrder, GqlLineItem } from '../types';
+import { getOrderStatusPresentation } from '../lib/orderStatus';
 
 // Use SellerProfile with only the fields we need for permission checking
 type ProfilePermissions = Pick<GqlSellerProfile, 'profileId' | 'isOwner' | 'permissions'>;
@@ -68,10 +68,6 @@ const getTotalItems = (lineItems: GqlLineItem[]): number => {
 // pre-feature rows carry no status at all, and a CONFIRMED row has no path
 // back, so neither gets the action.
 const canConfirmPayment = (order: GqlOrder): boolean => order.status === 'NEW';
-
-const statusChipColor = (status: string): 'warning' | 'success' => (status === 'CONFIRMED' ? 'success' : 'warning');
-
-const statusChipLabel = (status: string): string => (status === 'CONFIRMED' ? 'Payment confirmed' : 'New');
 
 const checkWritePermission = (profile: ProfilePermissions | undefined): boolean => {
   if (!profile) return false;
@@ -156,9 +152,9 @@ const StatusCell: React.FC<{ order: GqlOrder }> = ({ order }) => (
   <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
     {order.status ? (
       <Chip
-        label={statusChipLabel(order.status)}
+        label={getOrderStatusPresentation(order.status).label}
         size="small"
-        color={statusChipColor(order.status)}
+        color={getOrderStatusPresentation(order.status).color}
         data-testid="order-status-chip"
       />
     ) : (

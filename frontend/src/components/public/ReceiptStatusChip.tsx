@@ -8,19 +8,18 @@
 
 import { Chip } from '@mui/material';
 import type { GqlOrderStatus } from '../../types/graphql-generated';
+import { getOrderStatusPresentation } from '../../lib/orderStatus';
 
-const STATUS_LABELS: Record<GqlOrderStatus, string> = {
-  NEW: 'Awaiting payment confirmation',
-  CONFIRMED: 'Payment confirmed',
+export const ReceiptStatusChip: React.FC<{ status: GqlOrderStatus }> = ({ status }) => {
+  const presentation = getOrderStatusPresentation(status, 'receipt');
+  return (
+    <Chip
+      size="small"
+      color={presentation.color}
+      label={presentation.label ?? status}
+      data-testid="receipt-status-chip"
+    />
+  );
 };
-
-export const ReceiptStatusChip: React.FC<{ status: GqlOrderStatus }> = ({ status }) => (
-  <Chip
-    size="small"
-    color={status === 'CONFIRMED' ? 'success' : 'warning'}
-    label={STATUS_LABELS[status] ?? status}
-    data-testid="receipt-status-chip"
-  />
-);
 
 export default ReceiptStatusChip;
