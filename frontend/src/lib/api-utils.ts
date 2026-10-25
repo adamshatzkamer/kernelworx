@@ -13,7 +13,23 @@ import type { GraphQLFormattedError } from 'graphql';
  */
 export interface ApolloLikeError extends Error {
   graphQLErrors?: ReadonlyArray<GraphQLFormattedError>;
+  /** Apollo Client v4 (`CombinedGraphQLErrors`) carries the same list as `errors`. */
+  errors?: ReadonlyArray<GraphQLFormattedError>;
   networkError?: Error | null;
+}
+
+/**
+ * The GraphQL error list carried by an Apollo error, in either generation's
+ * shape: Apollo Client v4 wraps them in `CombinedGraphQLErrors.errors`; v3's
+ * `ApolloError` exposed `graphQLErrors`. The app runs v4, so reading only the
+ * v3 field never matches a real runtime error and every error-code-based
+ * decision silently degrades to "unknown".
+ */
+function graphqlErrorsOf(error: ApolloLikeError): ReadonlyArray<GraphQLFormattedError> {
+  if (Array.isArray(error.errors) && error.errors.length > 0) {
+    return error.errors;
+  }
+  return Array.isArray(error.graphQLErrors) ? error.graphQLErrors : [];
 }
 
 /**
@@ -54,9 +70,9 @@ export function getErrorMessage(
   // Handle ApolloLikeError
   if (isApolloLikeError(error)) {
     // Check for GraphQL errors first
-    if (error.graphQLErrors && error.graphQLErrors.length > 0) {
-      const firstError = error.graphQLErrors[0];
-      return firstError.message || defaultMessage;
+    const gqlErrors = graphqlErrorsOf(error);
+    if (gqlErrors.length > 0) {
+      return gqlErrors[0].message || defaultMessage;
     }
 
     // Check for network errors
@@ -91,12 +107,11 @@ export function getErrorMessage(
  * Type guard to check if an error is an ApolloLikeError.
  */
 export function isApolloLikeError(error: unknown): error is ApolloLikeError {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'graphQLErrors' in error &&
-    Array.isArray((error as ApolloLikeError).graphQLErrors)
-  );
+  if (error === null || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as ApolloLikeError;
+  return Array.isArray(candidate.errors) || Array.isArray(candidate.graphQLErrors);
 }
 
 /**
@@ -116,7 +131,7 @@ export function getErrorCode(error: ApolloLikeError | unknown): string | undefin
     return undefined;
   }
 
-  const firstError = error.graphQLErrors?.[0];
+  const firstError = graphqlErrorsOf(error)[0];
   if (!firstError) {
     return undefined;
   }

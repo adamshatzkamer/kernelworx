@@ -365,7 +365,15 @@ def ensure_managed_catalog() -> Generator[None, None, None]:
                     {
                         "productId": "PRODUCT#e2e-managed-1",
                         "productName": "E2E Managed Popcorn",
-                        "price": "15",
+                        # Numeric, not str: catalog prices are DynamoDB N attributes
+                        # (every catalog created through the API stores a number), and
+                        # the order-create money path (lib/line_items.js enrichLineItems,
+                        # shared by public and authenticated creates) rejects a
+                        # String price with INVALID_INPUT. A str price here made every
+                        # order placed against this campaign fail server-side while the
+                        # offer page still rendered, because the Python offer read
+                        # coerces stored values via as_float.
+                        "price": 15,
                         "sortOrder": 1,
                     }
                 ],
