@@ -323,7 +323,13 @@ def test_ops_topic_allows_cloudwatch_alarms_to_publish() -> None:
         actions = statement.get("actions") or []
         if isinstance(actions, str):
             actions = [actions]
-        return "cloudwatch.amazonaws.com" in identifiers and "SNS:Publish" in actions
+        # Exact element equality, never substring containment: an IAM service
+        # principal is a whole identifier, so a containment test is both the
+        # wrong predicate and indistinguishable from a URL check to CodeQL's
+        # py/incomplete-url-substring-sanitization query.
+        return any(identifier == "cloudwatch.amazonaws.com" for identifier in identifiers) and any(
+            action == "SNS:Publish" for action in actions
+        )
 
     cloudwatch_statements = [s for s in statements if allows_cloudwatch_publish(s)]
     assert cloudwatch_statements, (
