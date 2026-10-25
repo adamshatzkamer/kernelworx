@@ -2,12 +2,16 @@
 # Keep one word per line, sorted alphabetically.
 
 About
+absolutized
+absolutizes
 abstractmethod
 Accept
+accessdenied
 Account
 Actions
 addext
 addopts
+acks
 Admin
 AdminDeleteUser
 AdminLinkProviderForUser
@@ -19,6 +23,8 @@ affordances
 aioboto
 aiobotocore
 Alina
+allowlistable
+amazonses
 America
 Amplify
 anomalymonitor
@@ -29,6 +35,7 @@ AppSync
 appworx
 aria
 arn
+assertable
 asyncio
 auth
 authy
@@ -41,9 +48,12 @@ awsjson
 awsurl
 AYFK
 backend
+behaviour
+behaviours
 boto
 botocore
 Bricolage
+brien
 bucketName
 Bundler
 Camelize
@@ -70,6 +80,7 @@ codegen
 Cognito
 cognitoonly
 componentkit
+conditionalcheck
 confirmable
 conftest
 contrib
@@ -98,25 +109,39 @@ dev
 Device
 desyncs
 dialogProps
+domainkey
+dkim
 dmeiser
 DOTALL
 dotenv
 DPEHPK
 DynamoDB
+EEYQ
 EFGH
+elif
 emailAddress
 emoji
-isinstance
-resends
-émoji
 emojis
-Émojis
 endregion
 endswith
 env
 errorMessage
-EEYQ
 esac
+isinstance
+jank
+metas
+mockqr
+neighbour
+prin
+rasterizing
+resends
+resourceinuse
+sandboxed
+throttl
+unmarshalling
+unparseable
+Émojis
+émoji
 esbuild
 eslint
 exfiltration
@@ -137,6 +162,7 @@ fullname
 fromisoformat
 fullWidth
 getfail
+getobject
 getsizeof
 getters
 getvalue
@@ -186,6 +212,7 @@ José
 José's
 jsonencode
 jsonify
+jsqr
 kaushan
 kernelworx
 KernelWorx
@@ -226,6 +253,7 @@ metacharacter
 metacharacters
 metachars
 middleware
+miswired
 millis
 minLength
 mtimes
@@ -251,6 +279,7 @@ nocat
 nodate
 noindex
 noname
+noopener
 noout
 noreferrer
 nosniff
@@ -291,6 +320,8 @@ postalCode
 pre
 prefs
 prereqs
+presign
+presigns
 primaryText
 productId
 ProductName
@@ -327,6 +358,7 @@ reinstantiating
 reusability
 rname
 rollup
+rtok
 route53
 RRule
 rtype
@@ -343,6 +375,8 @@ secondaryText
 segoe
 Seller
 sendgrid
+sesv
+sesv2
 serializers
 serialise
 serialised
@@ -407,10 +441,12 @@ thead
 timeframe
 timeoutId
 titleText
+tmpreq
 toastMessage
 TOFUDIR
 toggleable
 tooltip
+tolower
 totp
 TQOJQ
 TQOJQGEZDGNBVGY
@@ -423,6 +459,7 @@ unaccented
 unassociate
 unauthenticate
 uncompiled
+unconfigured
 unfollow
 unhit
 unindexed
@@ -488,3 +525,6 @@ yearRange
 YTBOIJKMZG
 zelle
 zod
+zxing
+hookwrapper
+makereport

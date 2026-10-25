@@ -147,9 +147,7 @@ def test_two_phase_read_owner_check_uses_distinct_functions() -> None:
             f"{query} must run the GSI locator as a second function so the owner "
             "decision comes from the strongly consistent base-table GetItem"
         )
-        assert pipeline.index(step1) < pipeline.index(step2), (
-            f"{query} must decide ownership before the GSI locator"
-        )
+        assert pipeline.index(step1) < pipeline.index(step2), f"{query} must decide ownership before the GSI locator"
         # The share check reads the profile the locator produced, so it must run
         # after both phases.
         share_check = "${aws_appsync_function.check_share_read_permissions.function_id}"

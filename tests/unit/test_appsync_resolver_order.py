@@ -257,9 +257,7 @@ class TestDatasourceDeletion:
     causing BadRequestException.
     """
 
-    def test_datasource_deletion_triggers_guard(
-        self, repo_root: Path, mock_tofu: Path, tmp_path: Path
-    ) -> None:
+    def test_datasource_deletion_triggers_guard(self, repo_root: Path, mock_tofu: Path, tmp_path: Path) -> None:
         """Guard fires (applies resolver targets) when a datasource is deleted."""
         (mock_tofu / "plan.json").write_text(PLAN_WITH_DATASOURCE_DELETE)
 
@@ -271,9 +269,7 @@ class TestDatasourceDeletion:
         assert RESOLVER_TARGET in targets_of(calls[0])
         assert "datasource" in result.stderr.lower() or "deletion" in result.stderr.lower()
 
-    def test_datasource_deletion_no_targets_is_noop(
-        self, repo_root: Path, mock_tofu: Path, tmp_path: Path
-    ) -> None:
+    def test_datasource_deletion_no_targets_is_noop(self, repo_root: Path, mock_tofu: Path, tmp_path: Path) -> None:
         """If no -t targets are given, guard still exits 0 even with datasource deletions."""
         (mock_tofu / "plan.json").write_text(PLAN_WITH_DATASOURCE_DELETE)
 

@@ -31,8 +31,37 @@ except ModuleNotFoundError:  # pragma: no cover
     from .s3 import purge_s3_prefix
 
 
-# Module-level S3 client proxy for testing
-s3_client: "S3Client | None" = None
+# Module-level S3 client proxy for testing; when set, returned as-is.
+# Otherwise a lazily-initialized singleton is used to avoid creating a new
+# client on every call within a Lambda invocation.
+_s3_client_override: "S3Client | None" = None
+_s3_client_singleton: "S3Client | None" = None
+
+
+# Public alias used by tests to inject a mock client.
+s3_client = _s3_client_override
+
+
+def _get_s3_client() -> "S3Client":
+    """Return a memoized S3 client for the current Lambda invocation.
+
+    The first call constructs the client via ``get_s3_client`` (which honors
+    the ``S3_ENDPOINT`` override). Subsequent calls return the same instance.
+    Tests can inject a mock by assigning to ``payment_methods.s3_client``
+    before the first call; that alias is read HERE at call time, because
+    monkeypatch-based tests assign the module attribute directly and an
+    import-time alias alone would never see the injection.
+    """
+    global _s3_client_singleton
+    injected = s3_client
+    if injected is not None and injected is not _s3_client_override:
+        return injected
+    if _s3_client_override is not None:
+        return _s3_client_override
+    if _s3_client_singleton is None:
+        _s3_client_singleton = get_s3_client(None)
+    return _s3_client_singleton
+
 
 # Reserved payment method names (case-insensitive)
 RESERVED_NAMES = {"cash", "check"}
@@ -573,7 +602,7 @@ def delete_qr_by_key(s3_key: str) -> None:
     bucket_name = get_required_env("EXPORTS_BUCKET")
 
     try:
-        s3 = get_s3_client(s3_client)
+        s3 = _get_s3_client()
         s3.delete_object(Bucket=bucket_name, Key=s3_key)
         logger.info("Deleted QR code from S3", s3_key=s3_key)
     except ClientError as e:
@@ -612,7 +641,7 @@ def delete_qr_from_s3(account_id: str, payment_method_name: str) -> None:
     extensions = ["png", "jpg", "webp"]
 
     try:
-        s3 = get_s3_client(s3_client)
+        s3 = _get_s3_client()
 
         deleted_any = False
         for ext in extensions:  # pragma: no branch
@@ -696,7 +725,7 @@ def generate_presigned_get_url(
     bucket_name = get_required_env("EXPORTS_BUCKET")
 
     try:
-        s3: "S3Client" = get_s3_client(s3_client)
+        s3: "S3Client" = _get_s3_client()
 
         if s3_key:
             # Never sign a caller-supplied key without proving ownership;
@@ -741,7 +770,7 @@ def delete_all_user_qr_codes(account_id: str, logger: Any = None) -> int:
         return 0
 
     log = logger or get_logger(__name__)
-    s3 = get_s3_client(s3_client)
+    s3 = _get_s3_client()
     clean_id = account_id.replace("ACCOUNT#", "")
     prefixes = [f"{QR_CODE_S3_PREFIX}/{account_id}/"]
     if clean_id != account_id:

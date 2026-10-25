@@ -202,7 +202,7 @@ import_ephemeral_resources() {
 
   # DynamoDB tables
   log "   Importing DynamoDB tables..."
-  for table in accounts catalogs profiles campaigns orders shares invites shared-campaigns; do
+  for table in accounts catalogs profiles campaigns orders shares invites shared-campaigns public-order-throttles; do
     table_name="kernelworx-${table}${suffix}"
     resource_name=$(echo "$table" | tr '-' '_')
     if aws dynamodb describe-table --table-name "$table_name" --region "$region" >/dev/null 2>&1; then
@@ -241,6 +241,7 @@ import_ephemeral_resources() {
   local lambda_profile_sharing_exec_role="kernelworx-lambda-profile-sharing-exec${suffix}"
   local lambda_payment_exec_role="kernelworx-lambda-payment-exec${suffix}"
   local lambda_account_reporting_exec_role="kernelworx-lambda-account-reporting-exec${suffix}"
+  local lambda_public_orders_exec_role="kernelworx-lambda-public-orders-exec${suffix}"
   local appsync_role="kernelworx-appsync${suffix}"
   local cognito_sms_role="kernelworx${suffix}-UserPoolsmsRole"
   local appsync_logging_role="kernelworx-api${suffix}-logs"
@@ -253,6 +254,7 @@ import_ephemeral_resources() {
   import_resource "$run_id" "module.iam.aws_iam_role.lambda_profile_sharing_execution" "$lambda_profile_sharing_exec_role"
   import_resource "$run_id" "module.iam.aws_iam_role.lambda_payment_execution" "$lambda_payment_exec_role"
   import_resource "$run_id" "module.iam.aws_iam_role.lambda_account_reporting_execution" "$lambda_account_reporting_exec_role"
+  import_resource "$run_id" "module.iam.aws_iam_role.lambda_public_orders_execution" "$lambda_public_orders_exec_role"
   import_resource "$run_id" "module.iam.aws_iam_role.appsync_service" "$appsync_role"
   import_resource "$run_id" "module.appsync.aws_iam_role.appsync_logging" "$appsync_logging_role"
   import_resource "$run_id" "module.iam.aws_iam_role.cognito_sms" "$cognito_sms_role"
@@ -280,6 +282,13 @@ import_ephemeral_resources() {
   import_resource "$run_id" "module.iam.aws_iam_role_policy_attachment.lambda_account_reporting_basic" "${lambda_account_reporting_exec_role}/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   import_resource "$run_id" "module.iam.aws_iam_role_policy.lambda_account_reporting_dynamodb" "${lambda_account_reporting_exec_role}:dynamodb-access"
   import_resource "$run_id" "module.iam.aws_iam_role_policy.lambda_account_reporting_s3" "${lambda_account_reporting_exec_role}:s3-reports"
+  import_resource "$run_id" "module.iam.aws_iam_role_policy_attachment.lambda_public_orders_basic" "${lambda_public_orders_exec_role}/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  import_resource "$run_id" "module.iam.aws_iam_role_policy.lambda_public_orders_dynamodb" "${lambda_public_orders_exec_role}:dynamodb-access"
+  import_resource "$run_id" "module.iam.aws_iam_role_policy.lambda_public_orders_s3" "${lambda_public_orders_exec_role}:s3-qr-codes"
+  # KW-PUBLIC-ORDERS-SES-1: exists only where the SES module is instantiated
+  # (dev); count is zero on ephemeral, so this import is expected to fail there
+  # and import_resource tolerates that.
+  import_resource "$run_id" "module.iam.aws_iam_role_policy.lambda_public_orders_ses[0]" "${lambda_public_orders_exec_role}:ses-order-emails"
 
   import_resource "$run_id" "module.iam.aws_iam_role_policy.cognito_sms" "${cognito_sms_role}:sns-publish"
   import_resource "$run_id" "module.appsync.aws_iam_role_policy.appsync_logging" "${appsync_logging_role}:appsync-logging"
@@ -370,6 +379,34 @@ import_ephemeral_resources() {
   if [ -n "$appsync_id" ] && [ "$appsync_id" != "None" ]; then
     import_resource "$run_id" "module.appsync.aws_appsync_graphql_api.main" "$appsync_id"
     import_resource "$run_id" "module.appsync.aws_cloudwatch_log_group.appsync" "/aws/appsync/apis/${appsync_id}"
+
+    # The public-orders API keys (#679 rev 7, SEC-3 two-slot rotation model).
+    # The dynamic AppSync importer below discovers datasources, functions and
+    # resolvers only, so the keys need their own static import lines here
+    # (guarded by tests/unit/test_ephemeral_reliability.py). Matched by the
+    # "slot A"/"slot B" tags in the descriptions because AppSync has no name
+    # for a key; the id is "<api_id>:<key_id>". Slot B only exists during a
+    # rotation window (var.public_orders_key_slots = "ab" or "b").
+    local api_key_ids
+    api_key_ids=$(aws appsync list-api-keys --api-id "$appsync_id" --region "$region" --output json 2>/dev/null | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in d.get('apiKeys', []):
+    desc = k.get('description', '')
+    if 'Public orders slot A' in desc:
+        print('A=' + k['id'])
+    elif 'Public orders rotation slot B' in desc:
+        print('B=' + k['id'])
+" 2>/dev/null || true)
+    local api_key_id_a="" api_key_id_b=""
+    api_key_id_a=$(echo "$api_key_ids" | sed -n 's/^A=//p' | head -1)
+    api_key_id_b=$(echo "$api_key_ids" | sed -n 's/^B=//p' | head -1)
+    if [ -n "$api_key_id_a" ]; then
+      import_resource "$run_id" "module.appsync.aws_appsync_api_key.public_orders[0]" "${appsync_id}:${api_key_id_a}"
+    fi
+    if [ -n "$api_key_id_b" ]; then
+      import_resource "$run_id" "module.appsync.aws_appsync_api_key.public_orders_rotation[0]" "${appsync_id}:${api_key_id_b}"
+    fi
 
     # AppSync data layer (datasources, functions, resolvers).
     import_ephemeral_appsync_resources "$run_id" "$appsync_id"

@@ -11,7 +11,9 @@ import { util } from '@aws-appsync/utils';
 export function enrichLineItems(lineItems, catalog) {
     const productsMap = {};
     for (const product of (catalog && catalog.products) || []) {
-        productsMap[product.productId] = product;
+        if (product && typeof product.productId === 'string') {
+            productsMap[product.productId] = product;
+        }
     }
 
     const enrichedLineItems = [];
@@ -22,15 +24,18 @@ export function enrichLineItems(lineItems, catalog) {
         const productId = lineItem.productId;
         const quantity = lineItem.quantity;
 
-        if (quantity < 1) {
+        if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 1) {
             util.error('Quantity must be at least 1 (got ' + quantity + ')', 'INVALID_INPUT');
         }
 
-        if (!productsMap[productId]) {
+        if (!Object.hasOwn(productsMap, productId)) {
             util.error('Product ' + productId + ' not found in catalog', 'INVALID_INPUT');
         }
 
         const product = productsMap[productId];
+        if (!product || typeof product.price !== 'number' || !Number.isFinite(product.price) || product.price < 0) {
+            util.error('Product ' + productId + ' has no valid price', 'INVALID_INPUT');
+        }
         const pricePerUnitCents = Math.round(product.price * 100);
         const pricePerUnit = pricePerUnitCents / 100;
         const subtotalCents = pricePerUnitCents * quantity;

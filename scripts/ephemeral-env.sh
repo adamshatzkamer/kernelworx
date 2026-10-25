@@ -137,6 +137,8 @@ case "$ACTION" in
     # AppSync rejects deleting pipeline functions or data sources that are still referenced
     # by a resolver. If the plan would destroy any AppSync functions or data sources, update
     # the affected resolver(s)/function(s) first so the full apply can delete them.
+    # Keep this target list in sync with .github/workflows/deploy-shared.yml
+    # (appsync-ensure-resolver-order step); a script-parity test asserts the set.
     # Targets cover all Lambda→JS migrations that removed a Lambda data source:
     #   create_order (pipeline fn set), validate_payment_method_appsync (data_source switch #299),
     #   create_seller_profile (#300), create_campaign (#301), update_my_account (#298),
@@ -148,6 +150,7 @@ case "$ACTION" in
       -t module.appsync.aws_appsync_function.validate_payment_method_appsync \
       -t module.appsync.aws_appsync_resolver.create_seller_profile \
       -t module.appsync.aws_appsync_resolver.create_campaign \
+      -t module.appsync.aws_appsync_resolver.public_create_order \
       -t module.appsync.aws_appsync_resolver.update_my_account \
       -t module.appsync.aws_appsync_resolver.list_my_shares \
       -t module.appsync.aws_appsync_resolver.list_shares_by_profile \
@@ -167,12 +170,19 @@ case "$ACTION" in
     log ""
     TEST_REGION="${AWS_REGION:-us-east-1}"
     COGNITO_DOMAIN=$(tofu output -raw cognito_domain)
+    APPSYNC_API_KEY=$(tofu output -raw appsync_api_key 2>/dev/null) || true
     echo "export TEST_APPSYNC_ENDPOINT=$(tofu output -raw appsync_api_url)"
+    if [ -n "$APPSYNC_API_KEY" ]; then
+      echo "export TEST_APPSYNC_API_KEY=$APPSYNC_API_KEY"
+    fi
     echo "export TEST_USER_POOL_ID=$USER_POOL_ID"
     echo "export TEST_USER_POOL_CLIENT_ID=$(tofu output -raw cognito_client_id)"
     echo "export TEST_REGION=$TEST_REGION"
     echo "export E2E_BASE_URL=http://localhost:4173"
     echo "export VITE_APPSYNC_ENDPOINT=$(tofu output -raw appsync_api_url)"
+    if [ -n "$APPSYNC_API_KEY" ]; then
+      echo "export VITE_APPSYNC_API_KEY=$APPSYNC_API_KEY"
+    fi
     echo "export VITE_APPSYNC_REGION=$TEST_REGION"
     echo "export VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID"
     echo "export VITE_COGNITO_USER_POOL_CLIENT_ID=$(tofu output -raw cognito_client_id)"
@@ -192,14 +202,23 @@ case "$ACTION" in
   env)
     TEST_REGION="${AWS_REGION:-us-east-1}"
     COGNITO_DOMAIN=$(tofu output -raw cognito_domain)
+    APPSYNC_API_KEY=$(tofu output -raw appsync_api_key 2>/dev/null) || true
     log "📤 Environment exports for existing stack: $RUN_ID"
     log ""
     echo "export TEST_APPSYNC_ENDPOINT=$(tofu output -raw appsync_api_url)"
+    if [ -n "$APPSYNC_API_KEY" ]; then
+      echo "export TEST_APPSYNC_API_KEY=$APPSYNC_API_KEY"
+    else
+      log "⚠️  appsync_api_key output is absent from this stack's state; the stack has not yet deployed the public-orders feature, so TEST_APPSYNC_API_KEY/VITE_APPSYNC_API_KEY are omitted"
+    fi
     echo "export TEST_USER_POOL_ID=$(tofu output -raw cognito_user_pool_id)"
     echo "export TEST_USER_POOL_CLIENT_ID=$(tofu output -raw cognito_client_id)"
     echo "export TEST_REGION=$TEST_REGION"
     echo "export E2E_BASE_URL=http://localhost:4173"
     echo "export VITE_APPSYNC_ENDPOINT=$(tofu output -raw appsync_api_url)"
+    if [ -n "$APPSYNC_API_KEY" ]; then
+      echo "export VITE_APPSYNC_API_KEY=$APPSYNC_API_KEY"
+    fi
     echo "export VITE_APPSYNC_REGION=$TEST_REGION"
     echo "export VITE_COGNITO_USER_POOL_ID=$(tofu output -raw cognito_user_pool_id)"
     echo "export VITE_COGNITO_USER_POOL_CLIENT_ID=$(tofu output -raw cognito_client_id)"
