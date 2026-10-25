@@ -40,6 +40,7 @@ from src.utils.errors import AppError, ErrorCode
 CAMPAIGN_ID = "CAMPAIGN#c1"
 ORDER_SUFFIX = "s1"
 
+
 def _order_id(campaign_id: str = CAMPAIGN_ID, suffix: str = ORDER_SUFFIX) -> str:
     return f"ORDER#{campaign_id.removeprefix('CAMPAIGN#')}#{suffix}"
 
@@ -214,6 +215,18 @@ class TestOrderWithinTTL:
         order = _order({"orderDate": "not-a-date"})
         assert _order_within_ttl(order) is False
 
+    def test_naive_date_is_treated_as_utc(self) -> None:
+        """A stored date without an offset is UTC by convention, not an error.
+
+        The role-scope seed and legacy rows carry naive ``YYYY-MM-DD`` dates;
+        they must parse (not crash on the aware-now subtraction) and be judged
+        by age like any other date.
+        """
+        order = _order({"orderDate": _recent_order_date(1).split("T")[0]})
+        assert _order_within_ttl(order) is True
+        order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS + 1).split("T")[0]})
+        assert _order_within_ttl(order) is False
+
 
 class TestCoercionHelpers:
     def test_as_float_numeric_forms(self) -> None:
@@ -298,6 +311,26 @@ class TestBuildReceipt:
         """An order older than RECEIPT_TTL_DAYS returns NOT_FOUND."""
         expired_order = _order({"orderDate": _recent_order_date(RECEIPT_TTL_DAYS + 1)})
         orders_table.put_item(Item=expired_order)
+        with pytest.raises(AppError) as exc:
+            _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
+        assert exc.value.error_code is ErrorCode.NOT_FOUND
+
+    def test_hand_corrupted_embedded_campaign_is_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A row whose orderId embeds another campaign returns NOT_FOUND.
+
+        Only reachable with a hand-corrupted row: the keyed read addressed the
+        order under CAMPAIGN#c1, but its sort key claims ORDER#other#s1. The
+        disagreement must refuse the receipt, not serve it. The corruption
+        cannot be stored through the normal API (the sort key IS the orderId
+        attribute), so ``_load_order`` is stubbed to hand one over.
+        """
+        from src.handlers import public_orders_receipt
+
+        monkeypatch.setattr(
+            public_orders_receipt,
+            "_load_order",
+            lambda _campaign_id, _order_id: _order({"orderId": "ORDER#other#s1"}),
+        )
         with pytest.raises(AppError) as exc:
             _build_receipt(_event({"campaignId": "c1", "orderSuffix": "s1", "receiptToken": "tok"}))
         assert exc.value.error_code is ErrorCode.NOT_FOUND

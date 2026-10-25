@@ -37,11 +37,7 @@ EXPECTED_PYTHON_FLOOR = (3, 14)
 def _multi_type_except_count(path: Path) -> int:
     """Count handlers catching more than one exception type, via the AST."""
     tree = ast.parse(path.read_text())
-    return sum(
-        1
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Tuple)
-    )
+    return sum(1 for node in ast.walk(tree) if isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Tuple))
 
 
 def test_src_still_uses_multi_type_except_handlers() -> None:

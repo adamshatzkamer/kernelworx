@@ -159,6 +159,11 @@ def _order_within_ttl(order: Dict[str, Any]) -> bool:
     except ValueError:
         # Unparseable date: treat as expired (fail closed)
         return False
+    if order_dt.tzinfo is None:
+        # Stored dates without an offset are UTC by convention (the write
+        # path mints them with util.time.nowISO8601); a naive parse must not
+        # crash the subtraction against an aware "now".
+        order_dt = order_dt.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     delta = now - order_dt
     return delta.days < RECEIPT_TTL_DAYS

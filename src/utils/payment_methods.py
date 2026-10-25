@@ -9,7 +9,7 @@ import copy
 import os
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
 
 from botocore.exceptions import ClientError
 
@@ -48,9 +48,14 @@ def _get_s3_client() -> "S3Client":
     The first call constructs the client via ``get_s3_client`` (which honors
     the ``S3_ENDPOINT`` override). Subsequent calls return the same instance.
     Tests can inject a mock by assigning to ``payment_methods.s3_client``
-    before the first call.
+    before the first call; that alias is read HERE at call time, because
+    monkeypatch-based tests assign the module attribute directly and an
+    import-time alias alone would never see the injection.
     """
     global _s3_client_singleton
+    injected = s3_client
+    if injected is not None and injected is not _s3_client_override:
+        return cast("S3Client", injected)
     if _s3_client_override is not None:
         return _s3_client_override
     if _s3_client_singleton is None:

@@ -49,7 +49,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import hcl2
-import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
