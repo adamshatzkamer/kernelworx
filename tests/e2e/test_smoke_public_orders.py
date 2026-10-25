@@ -60,6 +60,7 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, expect
 
+from tests.e2e.conftest import _attach_console_log, _dump_console_log_on_failure
 from tests.e2e.pages.order_page import OrderPage
 from tests.e2e.pages.public_order_page import (
     ACK_DISCLOSURE_TEXT,
@@ -107,16 +108,20 @@ def _po_state(public_orders_setup: dict[str, str]) -> dict[str, str]:
 
 
 @pytest.fixture
-def buyer_page(browser: Browser) -> Generator[Page, None, None]:
+def buyer_page(browser: Browser, request: pytest.FixtureRequest) -> Generator[Page, None, None]:
     """Yield a Page in a fresh, never-authenticated browser context.
 
     A separate context (not the ``page`` fixture) is the point: the buyer must
     hold no Cognito session, no cookies and no localStorage.
     """
     context: BrowserContext = browser.new_context(ignore_https_errors=True)
+    console_log: list[str] = []
     try:
-        yield context.new_page()
+        page = context.new_page()
+        _attach_console_log(page, console_log)
+        yield page
     finally:
+        _dump_console_log_on_failure(request, console_log)
         context.close()
 
 

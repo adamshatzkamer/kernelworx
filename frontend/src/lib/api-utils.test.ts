@@ -36,6 +36,25 @@ function createV4GraphQLError(extensions: Record<string, unknown>): CombinedGrap
   });
 }
 
+/**
+ * The shape AppSync ACTUALLY returns for resolver-emitted errors (asserted
+ * against the live stack by tests/integration/resolvers/publicOrders):
+ * `util.error(message, type)` puts `errorType` on the error's top level, and
+ * the Lambda passthrough/unit resolvers' 4th util.error argument comes back as
+ * a top-level `errorInfo` object — neither lands in `extensions`.
+ */
+function createV4AppSyncError(fields: {
+  message: string;
+  errorType?: string;
+  errorInfo?: { errorCode?: string };
+  extensions?: Record<string, unknown>;
+}): CombinedGraphQLErrors {
+  return new CombinedGraphQLErrors({
+    data: null,
+    errors: [{ locations: [], path: ['field'], ...fields }],
+  });
+}
+
 // Helper to create mock Apollo errors
 function createApolloError(
   message: string,
@@ -411,6 +430,35 @@ describe('isNotFoundError', () => {
     const error = createV4GraphQLError({ errorCode: 'NOT_FOUND' });
     expect(getErrorCode(error)).toBe('NOT_FOUND');
     expect(isNotFoundError(error)).toBe(true);
+  });
+
+  it('should read the AppSync-native top-level errorType a JS resolver util.error emits', () => {
+    // Real AppSync shape: util.error(message, type) -> top-level errorType,
+    // no extensions at all. This is what a tampered public receipt token gets.
+    const error = createV4AppSyncError({ message: 'Receipt not available', errorType: 'NOT_FOUND' });
+    expect(getErrorCode(error)).toBe('NOT_FOUND');
+    expect(isNotFoundError(error)).toBe(true);
+    expect(getErrorMessage(error, 'fallback')).toBe('Receipt not available');
+  });
+
+  it('should read errorInfo.errorCode the Lambda passthrough/unit resolvers emit', () => {
+    // util.error(message, code, null, { errorCode }) -> top-level errorInfo.
+    const error = createV4AppSyncError({
+      message: 'Receipt not available',
+      errorType: 'NOT_FOUND',
+      errorInfo: { errorCode: 'NOT_FOUND' },
+    });
+    expect(getErrorCode(error)).toBe('NOT_FOUND');
+    expect(isNotFoundError(error)).toBe(true);
+  });
+
+  it('should prefer errorInfo.errorCode over the util.error type argument', () => {
+    const error = createV4AppSyncError({
+      message: 'Payment method is not available for this seller',
+      errorType: 'INVALID_INPUT',
+      errorInfo: { errorCode: 'PUBLIC_METHOD_UNAVAILABLE' },
+    });
+    expect(getErrorCode(error)).toBe('PUBLIC_METHOD_UNAVAILABLE');
   });
 
   it('should read the server message from a CombinedGraphQLErrors', () => {

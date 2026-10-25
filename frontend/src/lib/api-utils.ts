@@ -117,10 +117,19 @@ export function isApolloLikeError(error: unknown): error is ApolloLikeError {
 /**
  * Extract error code from an Apollo error if available.
  *
- * Reads, in priority order: `extensions.errorCode` (our custom error format),
- * `extensions.code` (standard GraphQL), then `extensions.errorType` (#329:
- * AppSync JS resolvers emit `util.error(message, type)`, which lands in
- * `extensions.errorType`).
+ * Reads, in priority order:
+ * 1. `errorInfo.errorCode` — AppSync's JS resolver `util.error(message, type,
+ *    data, errorInfo)` returns the 4th argument as a TOP-LEVEL `errorInfo`
+ *    field on each GraphQL error (NOT inside `extensions`); the Lambda
+ *    passthrough/unit resolvers pass `{ errorCode }` there.
+ * 2. Top-level `errorType` — where `util.error(message, type)` puts the type,
+ *    and where AppSync's own auth layer puts `Unauthorized`.
+ * 3. `extensions.errorCode` / `extensions.code` / `extensions.errorType` —
+ *    the generic GraphQL convention, kept as defense in depth.
+ *
+ * AppSync does NOT populate `extensions` for resolver-emitted errors, so a
+ * reader that only looks there returns `undefined` for every real backend
+ * error and every code-based UX decision degrades to "unknown".
  *
  * @param error - The Apollo error object
  * @returns Error code string or undefined
@@ -131,25 +140,38 @@ export function getErrorCode(error: ApolloLikeError | unknown): string | undefin
     return undefined;
   }
 
-  const firstError = graphqlErrorsOf(error)[0];
+  const firstError = graphqlErrorsOf(error)[0] as
+    | (GraphQLFormattedError & {
+        errorType?: unknown;
+        errorInfo?: { errorCode?: unknown } | null;
+      })
+    | undefined;
   if (!firstError) {
     return undefined;
   }
 
-  // Check extensions.errorCode (our custom error format)
+  // errorInfo.errorCode: the structured code the Lambda passthrough/unit
+  // resolvers emit via util.error's 4th (errorInfo) argument.
+  const structured = firstError.errorInfo?.errorCode;
+  if (typeof structured === 'string') {
+    return structured;
+  }
+
+  // Top-level errorType: util.error(message, type) puts the type here, and so
+  // does AppSync's own auth layer ("Unauthorized").
+  if (typeof firstError.errorType === 'string') {
+    return firstError.errorType;
+  }
+
+  // extensions: the generic GraphQL convention, kept as defense in depth.
   const extensions = firstError.extensions as Record<string, unknown> | undefined;
-  if (extensions?.errorCode && typeof extensions.errorCode === 'string') {
-    return extensions.errorCode;
-  }
-
-  // Check extensions.code (standard GraphQL error format)
-  if (extensions?.code && typeof extensions.code === 'string') {
-    return extensions.code;
-  }
-
-  // Check extensions.errorType (#329: AppSync JS resolver util.error type)
-  if (extensions?.errorType && typeof extensions.errorType === 'string') {
-    return extensions.errorType;
+  if (extensions) {
+    for (const key of ['errorCode', 'code', 'errorType'] as const) {
+      const value = extensions[key];
+      if (typeof value === 'string') {
+        return value;
+      }
+    }
   }
 
   return undefined;

@@ -526,3 +526,5 @@ YTBOIJKMZG
 zelle
 zod
 zxing
+hookwrapper
+makereport
