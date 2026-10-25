@@ -4,8 +4,8 @@ import { request, response } from './increment_public_order_count_fn.js';
 import { PUBLIC_ORDER_CAP } from './lib/public_order.js';
 
 describe('increment_public_order_count request', () => {
-    it('refuses a missing stash with the limit error (wiring fault)', () => {
-        assert.throws(() => request({ stash: {} }), /PUBLIC_ORDER_LIMIT_EXCEEDED: This campaign has reached its public order limit/);
+    it('refuses a missing stash with an internal error (wiring fault)', () => {
+        assert.throws(() => request({ stash: {} }), /INTERNAL_ERROR: Pipeline miswired: missing stashed ids/);
     });
 
     it('issues an atomic ADD guarded by the cap condition', () => {

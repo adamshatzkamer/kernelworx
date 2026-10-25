@@ -36,7 +36,7 @@ describe('send_public_order_emails request', () => {
         assert.strictEqual(req.operation, 'Invoke');
         assert.strictEqual(req.payload.operation, SEND_ORDER_EMAILS_OPERATION);
         assert.strictEqual(req.payload.order, ORDER_ITEM);
-        assert.strictEqual(req.payload.sellerName, 'Troops R Us');
+        // sellerName is no longer forwarded: the mailer reads it from the order row.
         assert.strictEqual(req.payload.ownerAccountId, 'ACCOUNT#a1');
         assert.strictEqual(req.payload.campaignName, 'Fall Sale');
         assert.strictEqual(req.payload.receiptUrl, '/r/c1/s1/rtok');
