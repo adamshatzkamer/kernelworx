@@ -66,7 +66,7 @@ def make_event(**overrides: Any) -> Dict[str, Any]:
 @pytest.fixture
 def ses_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """The configured-SES shape: all four env vars set."""
-    monkeypatch.setenv("SES_ORDER_FROM_ADDRESS", "orders@orders.dev.kernelworx.app")
+    monkeypatch.setenv("SES_ORDER_FROM_ADDRESS", "orders@dev.kernelworx.app")
     monkeypatch.setenv("SES_ORDER_TEMPLATE", "order-confirm-dev")
     monkeypatch.setenv("SES_ORDER_SELLER_TEMPLATE", "order-confirm-seller-dev")
     monkeypatch.setenv("SITE_URL", "https://dev.kernelworx.app/")
@@ -150,7 +150,7 @@ class TestUnconfigured:
         assert result == {"configured": False, "sellerEmailSent": False, "confirmationEmailSent": False}
 
     def test_partial_env_vars_are_unconfigured(self, monkeypatch: pytest.MonkeyPatch, dynamodb_table: Any) -> None:
-        monkeypatch.setenv("SES_ORDER_FROM_ADDRESS", "orders@orders.dev.kernelworx.app")
+        monkeypatch.setenv("SES_ORDER_FROM_ADDRESS", "orders@dev.kernelworx.app")
         monkeypatch.delenv("SES_ORDER_TEMPLATE", raising=False)
         monkeypatch.delenv("SES_ORDER_SELLER_TEMPLATE", raising=False)
         monkeypatch.delenv("SITE_URL", raising=False)
@@ -241,9 +241,9 @@ class TestSellerEmail:
         assert result["sellerEmailSent"] is True
         seller_call = _seller_call(fake_ses)
         assert seller_call["Destination"]["ToAddresses"] == [SELLER_EMAIL]
-        assert seller_call["Source"] == "orders@orders.dev.kernelworx.app"
+        assert seller_call["Source"] == "orders@dev.kernelworx.app"
         assert seller_call["Template"] == "order-confirm-seller-dev"
-        assert seller_call["ReplyToAddresses"] == ["orders@orders.dev.kernelworx.app"]
+        assert seller_call["ReplyToAddresses"] == ["orders@dev.kernelworx.app"]
 
         data = json.loads(seller_call["TemplateData"])
         assert data["orderId"] == ORDER_ID

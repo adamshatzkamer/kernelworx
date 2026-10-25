@@ -173,8 +173,9 @@ recipients.
   `include:amazonses.com` must be **merged into** the existing SPF value — read
   the live record set and report it before the first apply, never replace an
   existing record.
-- Dev sends from its own subdomain identity (`orders.dev.kernelworx.app`) with a
-  `[DEV] ` subject prefix; the apex zone is never touched from the dev stack.
+- Dev sends from its environment-zone identity (`dev.kernelworx.app`, from
+  `orders@dev.kernelworx.app`) with a `[DEV] ` subject prefix; the apex zone is
+  never touched from the dev stack.
 
 ## Explicit non-goals
 

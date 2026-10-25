@@ -188,19 +188,19 @@ module "iam" {
 }
 
 # SES sending identity for application transactional mail (public-order
-# confirmations, KW-PUBLIC-ORDERS-SES-1). The identity lives on a DEV-OWNED
-# SUBDOMAIN (orders.dev.kernelworx.app) of the dev zone; the apex
-# kernelworx.app zone (prod account, live MX/SPF) is never touched. DKIM
-# CNAME records are created in the dev zone only. The account stays in the
-# SES sandbox (sending to verified recipients only) until the production
-# access request lands as its named pre-launch gate.
+# confirmations, KW-PUBLIC-ORDERS-SES-1). The identity IS the dev zone itself
+# (dev.kernelworx.app) and the sender is orders@dev.kernelworx.app; the apex
+# kernelworx.app zone (prod account, live MX/SPF) is never touched. The three
+# DKIM CNAME records are created in the dev zone only (additive — existing
+# records are never read, modified, or deleted). The account stays in the SES
+# sandbox (sending to verified recipients only) until the production access
+# request lands as its named pre-launch gate.
 module "ses" {
   source = "../../modules/ses"
 
   name_prefix    = local.name_prefix
   environment    = var.environment
   zone_domain    = local.zone_domain
-  mail_subdomain = "orders"
   subject_prefix = "[DEV] "
 }
 

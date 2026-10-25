@@ -1,14 +1,17 @@
 """Static contract for the dev SES slice (KW-PUBLIC-ORDERS-SES-1).
 
-The captain's 2026-10-16 directive makes the dev sending identity a DEV-OWNED
-SUBDOMAIN of the dev zone; the apex ``kernelworx.app`` zone (prod account, live
-MX/SPF) is NEVER touched. These guards pin:
+The settled design makes the SES sending identity the environment's own zone
+(``dev.kernelworx.app`` on dev) with the from-address ``orders@{zone}``
+(``orders@dev.kernelworx.app`` on dev); the apex ``kernelworx.app`` zone (prod
+account, live MX/SPF) is NEVER touched. These guards pin:
 
 - only the dev environment instantiates the SES module; prod and ephemeral do
   not reference it at all;
+- the SES identity IS ``var.zone_domain`` and the from-address is
+  ``orders@${var.zone_domain}`` — no ``mail_subdomain`` variable survives;
 - the module's DNS records land in ``var.zone_domain`` (dev passes its own
-  zone, never the apex) and only ever create new CNAME names under the
-  dev-owned mail subdomain — no TXT/MX/SPF record exists in the module;
+  zone, never the apex) and only ever create the three new Easy DKIM CNAME
+  names — no TXT/MX/SPF record exists in the module;
 - templates interpolate buyer data through SES Handlebars auto-escaping only
   (no ``{{{ }}}`` unescaped interpolation anywhere) and are namespaced per
   environment with the ``[DEV] `` subject prefix coming from a variable;
@@ -56,8 +59,27 @@ def test_dev_ses_module_is_scoped_to_the_dev_owned_zone() -> None:
     # The dev zone — never the apex kernelworx.app zone, which lives in the
     # prod account with live MX/SPF mail routing.
     assert ses["zone_domain"] == "${local.zone_domain}"
-    assert ses["mail_subdomain"] == "orders"
     assert ses["subject_prefix"] == "[DEV] "
+
+
+def test_identity_is_the_environment_zone_and_from_address_is_orders_at_zone() -> None:
+    source = SES_MODULE.read_text()
+    # No subdomain carve-out survives: the identity is the zone itself and
+    # the sender is orders@{zone} (dev: orders@dev.kernelworx.app).
+    assert 'variable "mail_subdomain"' not in source
+    assert "local.mail_domain" not in source
+    doc = load_hcl(SES_MODULE)
+    identities = [
+        attributes
+        for block in doc.get("resource", [])
+        for resource_type, instances in block.items()
+        if resource_type == "aws_sesv2_email_identity"
+        for _, attributes in instances.items()
+    ]
+    assert len(identities) == 1
+    assert identities[0]["email_identity"] == "${var.zone_domain}"
+    locals_by_key = {key: value for block in doc.get("locals", []) for key, value in block.items()}
+    assert locals_by_key["from_address"] == "orders@${var.zone_domain}"
 
 
 def test_ses_module_never_references_the_apex_zone() -> None:

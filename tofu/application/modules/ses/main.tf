@@ -1,14 +1,14 @@
 # SES module — application transactional mail for public-order confirmations
 # (KW-PUBLIC-ORDERS-SES-1, spec §6).
 #
-# Per the captain's 2026-10-16 directive, the DEV sending identity is a
-# DEV-OWNED SUBDOMAIN of the environment's own zone (default
-# orders.dev.kernelworx.app). The apex kernelworx.app zone is prod-account,
-# carries live MX/SPF mail routing, and is NEVER touched here: this module
-# only manages records under var.zone_domain, which dev sets to its own zone
-# (dev.kernelworx.app). The apex shared-identity design from spec §6/Q1 was
-# superseded for dev by the captain's directive; prod's SES slice is a separate
-# pre-launch task.
+# The settled design: the SES sending identity IS the environment's own
+# Route53 zone, and the from-address is orders@{zone} (dev: identity
+# dev.kernelworx.app, sender orders@dev.kernelworx.app). The apex
+# kernelworx.app zone lives in the prod account, carries live MX/SPF mail
+# routing, and is NEVER touched: prod does not instantiate this module, and
+# every DNS reference goes through var.zone_domain, which dev sets to its own
+# zone. The earlier orders.-subdomain shape (orders.dev.kernelworx.app) and
+# the spec §6/Q1 shared-apex identity design are both superseded.
 #
 # Ephemeral environments do not instantiate this module at all (the #665 WAF
 # pattern): zero SES objects, zero cost, and the mailer's "no SES env vars ->
@@ -20,8 +20,9 @@
 #
 # Verification is DKIM-based (SES Easy DKIM, RSA_2048_BIT): the identity
 # flips to verified once the three CNAME records exist in the zone, so no
-# _amazonses TXT record is needed. Every record this module creates is a new
-# name inside the dev-owned subdomain — nothing pre-existing can collide.
+# _amazonses TXT record is needed. The records are additive only: this module
+# only ever creates its three token CNAMEs in the environment zone — it never
+# reads, modifies, or deletes any existing record there.
 
 variable "name_prefix" {
   description = "Prefix for resource names"
@@ -50,12 +51,6 @@ variable "zone_domain" {
   type        = string
 }
 
-variable "mail_subdomain" {
-  description = "Subdomain of the zone that becomes the SES sending identity"
-  type        = string
-  default     = "orders"
-}
-
 variable "subject_prefix" {
   description = "Prefix prepended to every template subject so a dev send can never be mistaken for a prod notice (spec §6). Dev passes \"[DEV] \"."
   type        = string
@@ -63,8 +58,7 @@ variable "subject_prefix" {
 }
 
 locals {
-  mail_domain  = "${var.mail_subdomain}.${var.zone_domain}"
-  from_address = "orders@${local.mail_domain}"
+  from_address = "orders@${var.zone_domain}"
 
   # Namespaced per environment (spec §6) so identities/templates never collide
   # across environments that share an account.
@@ -75,7 +69,7 @@ locals {
 resource "aws_sesv2_email_identity" "orders" {
   count = var.create ? 1 : 0
 
-  email_identity = local.mail_domain
+  email_identity = var.zone_domain
 
   dkim_signing_attributes {
     next_signing_key_length = "RSA_2048_BIT"
@@ -96,9 +90,9 @@ data "aws_route53_zone" "mail" {
   private_zone = false
 }
 
-# Easy DKIM CNAMEs: <token>._domainkey.<mail_subdomain>.<zone> -> <token>.dkim.amazonses.com.
-# New names under the dev-owned subdomain only — additive by construction, and
-# the identity verification is driven by these records (no _amazonses TXT).
+# Easy DKIM CNAMEs: <token>._domainkey.<zone> -> <token>.dkim.amazonses.com.
+# New names directly in the environment zone only — additive by construction,
+# and the identity verification is driven by these records (no _amazonses TXT).
 #
 # Easy DKIM always yields exactly three CNAME tokens, and the token list is
 # known only after the identity is applied — keying a for_each over it
@@ -110,7 +104,7 @@ resource "aws_route53_record" "dkim" {
   count = var.create && var.manage_dns ? 3 : 0
 
   zone_id = data.aws_route53_zone.mail[0].zone_id
-  name    = "${aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens[count.index]}._domainkey.${local.mail_domain}"
+  name    = "${aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens[count.index]}._domainkey.${var.zone_domain}"
   type    = "CNAME"
   ttl     = 300
   records = ["${aws_sesv2_email_identity.orders[0].dkim_signing_attributes[0].tokens[count.index]}.dkim.amazonses.com"]
