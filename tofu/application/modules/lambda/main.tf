@@ -213,13 +213,14 @@ locals {
       timeout     = 15
       memory_size = 256
       extra_env   = local.ses_env
-      # SEC-6: an order flood reaches the mailer as a flood of Lambda invokes,
-      # each holding an account-concurrency slot for up to the 15s timeout.
-      # Capping this function bounds that drain; the email step is best-effort
-      # (invoke throttles surface as a swallowed email failure on the order,
-      # never a lost order), and 5 concurrent sends is far above legitimate
-      # buyer traffic for this surface. Chosen value: 5.
-      reserved_concurrent_executions = 5
+      # SEC-6 (captain's ruling, Option A): no reserved_concurrent_executions
+      # on this function. AWS requires the account's unreserved concurrency to
+      # stay at or above 100, and this account's ConcurrentExecutions quota is
+      # too low to reserve any amount for a single function. The flood guard
+      # is the application-layer throttle instead:
+      # throttle_public_order_create_fn.js (5 creates/min per share token,
+      # already wired as pipeline step 3). If the account quota is ever raised
+      # via Service Quotas, restoring a cap here is a one-line change.
     }
   }
 
@@ -381,7 +382,9 @@ resource "aws_lambda_function" "functions" {
 
   layers = [aws_lambda_layer_version.shared.arn]
 
-  # Per-function override (SEC-6): only the public-orders mailer sets this.
+  # Per-function concurrency-cap hook (SEC-6): no function sets this today
+  # (see the public-orders entry for the captain's ruling); the lookup stays
+  # so restoring a cap is a one-line change in the function map.
   reserved_concurrent_executions = lookup(each.value, "reserved_concurrent_executions", null)
 
   environment {
