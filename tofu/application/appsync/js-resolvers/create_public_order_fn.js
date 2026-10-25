@@ -55,7 +55,7 @@ const campaignsTableName = '${campaigns_table_name}';
 // its own `operation` field - AppSync rejects an item without one):
 //   1. ConditionCheck on the campaign table: verifies the campaign item still
 //      exists (attribute_exists(campaignId) on the campaign's partition key).
-//      Requires the `dynamodb:ConditionCheck` IAM permission on the campaigns
+//      Requires the `dynamodb:ConditionCheckItem` IAM permission on the campaigns
 //      table (granted on the shared AppSync datasource role in iam/main.tf).
 //   2. PutItem on the orders table: writes the order row.
 // Both operations succeed or fail atomically, so a concurrent campaign deletion
