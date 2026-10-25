@@ -249,7 +249,7 @@ def _token_matches(blob: Dict[str, Any], token: Any) -> bool:
     if blob.get("enabled") is not True:
         return False
     stored = blob.get("token")
-    return constant_time_token_match(stored, token)
+    return bool(constant_time_token_match(stored, token))
 
 
 # ---------------------------------------------------------------------------

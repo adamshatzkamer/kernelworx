@@ -125,7 +125,7 @@ def _token_matches(order: Dict[str, Any], submitted: Any) -> bool:
     NOT_FOUND rather than disclosing that the order exists.
     """
     stored = order.get("receiptToken")
-    return constant_time_token_match(stored, submitted)
+    return bool(constant_time_token_match(stored, submitted))
 
 
 def _embedded_campaign_matches(order: Dict[str, Any], campaign_id: str) -> bool:

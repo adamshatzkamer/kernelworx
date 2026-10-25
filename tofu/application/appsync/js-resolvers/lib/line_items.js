@@ -9,7 +9,7 @@ import { util } from '@aws-appsync/utils';
  * math, pinned by lib/line_items.test.js.
  */
 export function enrichLineItems(lineItems, catalog) {
-    const productsMap = Object.create(null);
+    const productsMap = {};
     for (const product of (catalog && catalog.products) || []) {
         if (product && typeof product.productId === 'string') {
             productsMap[product.productId] = product;
@@ -24,7 +24,7 @@ export function enrichLineItems(lineItems, catalog) {
         const productId = lineItem.productId;
         const quantity = lineItem.quantity;
 
-        if (typeof quantity !== 'number' || !isFinite(quantity) || quantity < 1) {
+        if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 1) {
             util.error('Quantity must be at least 1 (got ' + quantity + ')', 'INVALID_INPUT');
         }
 
@@ -33,7 +33,7 @@ export function enrichLineItems(lineItems, catalog) {
         }
 
         const product = productsMap[productId];
-        if (!product || typeof product.price !== 'number' || !isFinite(product.price) || product.price < 0) {
+        if (!product || typeof product.price !== 'number' || !Number.isFinite(product.price) || product.price < 0) {
             util.error('Product ' + productId + ' has no valid price', 'INVALID_INPUT');
         }
         const pricePerUnitCents = Math.round(product.price * 100);

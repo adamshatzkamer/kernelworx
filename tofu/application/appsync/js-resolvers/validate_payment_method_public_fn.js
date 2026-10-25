@@ -34,7 +34,7 @@ export function request(ctx) {
             util.error('Catalog is not available for this campaign', 'INVALID_INPUT');
             return null;
         }
-        const productsMap = Object.create(null);
+        const productsMap = {};
         for (const product of catalog.products || []) {
             if (product && typeof product.productId === 'string') {
                 productsMap[product.productId] = product;
@@ -46,7 +46,7 @@ export function request(ctx) {
                 return null;
             }
             const product = productsMap[lineItem.productId];
-            if (!product || typeof product.price !== 'number' || !isFinite(product.price) || product.price < 0) {
+            if (!product || typeof product.price !== 'number' || !Number.isFinite(product.price) || product.price < 0) {
                 util.error('Product ' + lineItem.productId + ' has no valid price', 'INVALID_INPUT');
                 return null;
             }

@@ -228,7 +228,7 @@ resource "aws_cloudwatch_log_metric_filter" "public_token_mismatch" {
 
   metric_transformation {
     name      = "PublicOrderTokenMismatch"
-    namespace = "Kernelworx/PublicOrders"
+    namespace = "KernelWorx/PublicOrders"
     value     = "1"
   }
 }
@@ -242,7 +242,7 @@ resource "aws_cloudwatch_log_metric_filter" "public_cap_rejected" {
 
   metric_transformation {
     name      = "PublicOrderCapRejected"
-    namespace = "Kernelworx/PublicOrders"
+    namespace = "KernelWorx/PublicOrders"
     value     = "1"
   }
 }
@@ -257,7 +257,7 @@ resource "aws_cloudwatch_metric_alarm" "public_token_mismatch" {
   threshold           = var.public_token_mismatch_threshold
   treat_missing_data  = "notBreaching"
 
-  namespace   = "Kernelworx/PublicOrders"
+  namespace   = "KernelWorx/PublicOrders"
   metric_name = "PublicOrderTokenMismatch"
   period      = var.public_abuse_period_seconds
   statistic   = "Sum"
@@ -275,7 +275,7 @@ resource "aws_cloudwatch_metric_alarm" "public_cap_rejected" {
   threshold           = var.public_cap_rejection_threshold
   treat_missing_data  = "notBreaching"
 
-  namespace   = "Kernelworx/PublicOrders"
+  namespace   = "KernelWorx/PublicOrders"
   metric_name = "PublicOrderCapRejected"
   period      = var.public_abuse_period_seconds
   statistic   = "Sum"

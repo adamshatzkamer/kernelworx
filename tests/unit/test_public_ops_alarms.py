@@ -253,7 +253,7 @@ def test_public_abuse_metric_filters_watch_the_exact_resolver_markers() -> None:
 
     for label, body in filters.items():
         transform = body["metric_transformation"][0]
-        assert transform["namespace"] == "Kernelworx/PublicOrders"
+        assert transform["namespace"] == "KernelWorx/PublicOrders"
         assert transform["value"] == "1"
 
 
@@ -264,7 +264,7 @@ def test_public_abuse_alarms_use_the_filter_metrics() -> None:
         ("public_cap_rejected", "PublicOrderCapRejected"),
     ):
         body = alarms[label]
-        assert body["namespace"] == "Kernelworx/PublicOrders"
+        assert body["namespace"] == "KernelWorx/PublicOrders"
         assert body["metric_name"] == metric
         assert body["statistic"] == "Sum"
         assert body["treat_missing_data"] == "notBreaching", (
@@ -310,11 +310,22 @@ def test_ops_topic_allows_cloudwatch_alarms_to_publish() -> None:
     if isinstance(statements, dict):
         statements = [statements]
 
-    cloudwatch_statements = [
-        s
-        for s in statements
-        if "cloudwatch.amazonaws.com" in str(s.get("principals")) and "SNS:Publish" in str(s.get("actions"))
-    ]
+    def allows_cloudwatch_publish(statement: Dict[str, Any]) -> bool:
+        principals = statement.get("principals")
+        if isinstance(principals, dict):
+            principals = [principals]
+        identifiers = {
+            str(identifier)
+            for principal in principals or []
+            if isinstance(principal, dict)
+            for identifier in (principal.get("identifiers") or [])
+        }
+        actions = statement.get("actions") or []
+        if isinstance(actions, str):
+            actions = [actions]
+        return "cloudwatch.amazonaws.com" in identifiers and "SNS:Publish" in actions
+
+    cloudwatch_statements = [s for s in statements if allows_cloudwatch_publish(s)]
     assert cloudwatch_statements, (
         "the ops topic policy must allow the cloudwatch.amazonaws.com service "
         "principal to SNS:Publish - alarm actions publish as that principal"

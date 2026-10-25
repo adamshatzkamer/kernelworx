@@ -7,7 +7,7 @@ describe('publicOrderSubmit', () => {
       firstName: 'A', lastName: 'B', phone: '1234567890', email: '', address: { street: '', city: '', state: '', zipCode: '' },
       paymentMethod: 'Cash', notes: '', lineItems: { a: 2, b: 0, c: 3 },
     } as any;
-    const input = buildPublicOrderInput({ profileId: '', token: 'tok', campaignId: 'camp', form }) as any;
+    const input = buildPublicOrderInput({ token: 'tok', campaignId: 'camp', form }) as any;
     expect(input.lineItems).toEqual([
       { productId: 'a', quantity: 2 },
       { productId: 'c', quantity: 3 },
@@ -19,7 +19,7 @@ describe('publicOrderSubmit', () => {
       firstName: 'A', lastName: 'B', phone: '1234567890', email: '', address: { street: '', city: '', state: '', zipCode: '' },
       paymentMethod: 'Venmo', notes: '', lineItems: { a: 1 },
     } as any;
-    const input = buildPublicOrderInput({ profileId: '', token: 'tok', campaignId: 'camp', form }) as any;
+    const input = buildPublicOrderInput({ token: 'tok', campaignId: 'camp', form }) as any;
     expect(input.paymentMethod).toBe('Venmo');
     expect(input.acknowledgementsAccepted).toBe(BUYER_ACKNOWLEDGEMENTS_ACCEPTED);
     expect(input.token).toBe('tok');
@@ -31,7 +31,7 @@ describe('publicOrderSubmit', () => {
       firstName: 'A', lastName: 'B', phone: '1234567890', email: '', address: { street: '', city: '', state: '', zipCode: '' },
       paymentMethod: 'Venmo', notes: '  Leave the box at the side door  ', lineItems: { a: 1 },
     } as any;
-    const input = buildPublicOrderInput({ profileId: '', token: 'tok', campaignId: 'camp', form }) as any;
+    const input = buildPublicOrderInput({ token: 'tok', campaignId: 'camp', form }) as any;
     expect(input.notes).toBe('Leave the box at the side door');
   });
 

@@ -9,7 +9,7 @@ import copy
 import os
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from botocore.exceptions import ClientError
 
@@ -55,7 +55,7 @@ def _get_s3_client() -> "S3Client":
     global _s3_client_singleton
     injected = s3_client
     if injected is not None and injected is not _s3_client_override:
-        return cast("S3Client", injected)
+        return injected
     if _s3_client_override is not None:
         return _s3_client_override
     if _s3_client_singleton is None:

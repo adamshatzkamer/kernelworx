@@ -6,6 +6,7 @@ absolutized
 absolutizes
 abstractmethod
 Accept
+accessdenied
 Account
 Actions
 addext
@@ -79,6 +80,7 @@ codegen
 Cognito
 cognitoonly
 componentkit
+conditionalcheck
 confirmable
 conftest
 contrib
@@ -126,7 +128,18 @@ env
 errorMessage
 esac
 isinstance
+jank
+metas
+mockqr
+neighbour
+prin
+rasterizing
 resends
+resourceinuse
+sandboxed
+throttl
+unmarshalling
+unparseable
 Émojis
 émoji
 esbuild
