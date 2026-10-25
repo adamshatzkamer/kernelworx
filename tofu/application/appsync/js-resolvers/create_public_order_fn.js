@@ -3,6 +3,20 @@ import { stripIdPrefix } from './lib/ids.js';
 import { enrichLineItems } from './lib/line_items.js';
 import { composePublicOrderReceipt } from './lib/public_order.js';
 
+// Loaded via Terraform templatefile() (functions_orders.tf): a dollar-brace
+// sequence here is Terraform-interpolated, not JS. In a template/string literal
+// that aborts every plan/apply with "Invalid expression"; ordinary comments are
+// stripped by the esbuild bundle, but are banned too as defense-in-depth.
+// Enforced by tests/unit/check_templatefile_escaping.test.ts (#570).
+//
+// The real table names MUST be injected: unlike single-table operations, a
+// TransactWriteItems item's `table` field is the literal AWS table name, not
+// the datasource's logical name. Hardcoding 'Orders'/'Campaigns' made AppSync
+// target a nonexistent table/Orders and fail with AccessDenied (ephemeral
+// integration run on the mega branch).
+const ordersTableName = '${orders_table_name}';
+const campaignsTableName = '${campaigns_table_name}';
+
 // Step 7 of the publicCreateOrder pipeline (#679 write slice, spec §5.3):
 // write the order. A CLONE of create_order_fn.js that shares its price and
 // line-item core (lib/line_items.js) but reads the STASH, not ctx.args.input -
@@ -147,11 +161,11 @@ export function request(ctx) {
         transactItems: [
             {
                 // ConditionCheck: verify the campaign item exists in the
-                // Campaigns table. The campaign table's key is {profileId, campaignId}.
+                // campaigns table. The campaign table's key is {profileId, campaignId}.
                 // A concurrent deleteCampaign deletes this item, causing the
                 // ConditionCheck to fail and the entire transaction to cancel.
                 operation: 'ConditionCheck',
-                table: 'Campaigns',
+                table: campaignsTableName,
                 key: util.dynamodb.toMapValues({ profileId: profileId, campaignId: campaignId }),
                 condition: {
                     expression: 'attribute_exists(campaignId)'
@@ -160,7 +174,7 @@ export function request(ctx) {
             {
                 // PutItem: write the order row.
                 operation: 'PutItem',
-                table: 'Orders',
+                table: ordersTableName,
                 key: util.dynamodb.toMapValues({ campaignId: campaignId, orderId: orderId }),
                 attributeValues: util.dynamodb.toMapValues(orderItem)
             }

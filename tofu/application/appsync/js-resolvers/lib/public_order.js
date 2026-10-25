@@ -141,7 +141,7 @@ function validateAddressFields(value) {
     const cleaned = {};
     for (const field of ['street', 'city', 'state', 'zipCode']) {
         const raw = value[field];
-        const text = typeof raw === 'string' ? raw.trim() : `${raw}`;
+        const text = typeof raw === 'string' ? raw.trim() : '' + raw;
         if (text.length > MAX_ADDRESS_FIELD_LENGTH) {
             invalidInput('Address fields must be at most ' + MAX_ADDRESS_FIELD_LENGTH + ' characters');
             return null;
@@ -206,7 +206,7 @@ export function validateAndMapPublicOrderInput(input) {
 
     // D7: at least one reachable contact channel. A phone must be a 10-digit US
     // number; an address, if given at all, must be complete.
-    const phoneGiven = input.phone !== undefined && input.phone !== null && `${input.phone}`.trim() !== '';
+    const phoneGiven = input.phone !== undefined && input.phone !== null && ('' + input.phone).trim() !== '';
     const addressGiven = input.address !== undefined && input.address !== null;
     if (!phoneGiven && !addressGiven) {
         invalidInput('A phone number or a complete address is required');
@@ -215,7 +215,7 @@ export function validateAndMapPublicOrderInput(input) {
 
     let customerPhone = null;
     if (phoneGiven) {
-        const phoneResult = validatePhone(`${input.phone}`);
+        const phoneResult = validatePhone('' + input.phone);
         if (!phoneResult.valid) {
             invalidInput(phoneResult.error);
             return null;

@@ -25,7 +25,13 @@ APPSYNC_JS pipeline whose step order is load-bearing twice over:
 Parsed with python-hcl2 via the harness in test_public_settings_pipeline_wiring.py.
 """
 
+from pathlib import Path
+
 from tests.unit.test_public_settings_pipeline_wiring import MUTATION_RESOLVERS, _pipeline
+
+APPSYNC_MODULE_DIR = Path(__file__).resolve().parents[2] / "tofu" / "application" / "modules" / "appsync"
+FUNCTIONS_ORDERS = APPSYNC_MODULE_DIR / "functions_orders.tf"
+CREATE_PUBLIC_ORDER_JS = APPSYNC_MODULE_DIR.parent.parent / "appsync" / "js-resolvers" / "create_public_order_fn.js"
 
 TOKEN = "aws_appsync_function.validate_public_token"
 TOKEN_STEP2 = "aws_appsync_function.validate_public_token_step2"
@@ -58,6 +64,28 @@ def test_public_create_order_pipeline_order() -> None:
         # abort the committed order, and its own failure is swallowed by design.
         EMAIL,
     ], "publicCreateOrder's step order is the cap-burn contract; do not reorder"
+
+
+def test_write_step_uses_real_table_names_via_templatefile() -> None:
+    """The write is a TransactWriteItems spanning two tables, and each
+    transact item's ``table`` field is the LITERAL AWS table name at runtime
+    (AppSync does not default it to the datasource's table). Hardcoding the
+    logical names 'Orders'/'Campaigns' there made the deployed pipeline target
+    table/Orders and fail with AccessDenied, taking down every dependent
+    integration test (receipt link split, updateOrder input coercion). This
+    pins the real names to the injected ``var.dynamodb_table_names`` map."""
+    tf = FUNCTIONS_ORDERS.read_text()
+    block = tf.split('resource "aws_appsync_function" "create_public_order"', 1)[1]
+    block = block.split("\n}", 1)[0]
+    assert "templatefile(" in block, "create_public_order must be templatefile()'d, not file()"
+    assert "orders_table_name" in block and "var.dynamodb_table_names.orders" in block
+    assert "campaigns_table_name" in block and "var.dynamodb_table_names.campaigns" in block
+
+    js = CREATE_PUBLIC_ORDER_JS.read_text()
+    assert "table: ordersTableName" in js
+    assert "table: campaignsTableName" in js
+    assert "table: 'Orders'" not in js
+    assert "table: 'Campaigns'" not in js
 
 
 def test_throttle_runs_immediately_after_authorization() -> None:

@@ -212,7 +212,17 @@ resource "aws_appsync_function" "create_public_order" {
     runtime_version = "1.0.0"
   }
 
-  code = file("${local.js_resolvers_dir}/create_public_order_fn.js")
+  # templatefile() (not file()): the write is a TransactWriteItems spanning
+  # two tables, and each transact item's `table` field must be the REAL AWS
+  # table name - AppSync takes it literally rather than defaulting to the
+  # datasource's table. The hardcoded logical names 'Orders'/'Campaigns'
+  # produced AccessDenied on table/Orders in the deployed runtime. The
+  # escaping rules are the module-wide ones (#570): every surviving
+  # dollar-brace sequence is interpolated, so a literal must be written $${...}.
+  code = templatefile("${local.js_resolvers_dir}/create_public_order_fn.js", {
+    orders_table_name    = var.dynamodb_table_names.orders
+    campaigns_table_name = var.dynamodb_table_names.campaigns
+  })
 }
 
 # publicCreateOrder pipeline step 8 (KW-PUBLIC-ORDERS-SES-1): the best-effort

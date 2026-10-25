@@ -49,17 +49,21 @@ describe('create_public_order request', () => {
 
         // ARCH-1: each transact item MUST carry its own operation field -
         // AppSync rejects a TransactWriteItems item without one.
-        // First item: ConditionCheck on Campaigns table (campaign-existence guard)
+        // First item: ConditionCheck on the campaigns table (campaign-existence
+        // guard). The source is templatefile()'d at deploy time; in tests the
+        // placeholder stays literal, which also pins the real-name injection:
+        // a hardcoded logical name here is what broke the deployed pipeline.
         const conditionCheck = req.transactItems[0];
         assert.strictEqual(conditionCheck.operation, 'ConditionCheck');
-        assert.strictEqual(conditionCheck.table, 'Campaigns');
+        assert.strictEqual(conditionCheck.table, '${campaigns_table_name}');
         assert.deepStrictEqual(conditionCheck.key, { profileId: 'PROFILE#p1', campaignId: 'CAMPAIGN#c1' });
         assert.strictEqual(conditionCheck.condition.expression, 'attribute_exists(campaignId)');
 
-        // Second item: PutItem on Orders table
+        // Second item: PutItem on the orders table (placeholder stays literal
+        // in tests; see the ConditionCheck item above).
         const putItem = req.transactItems[1];
         assert.strictEqual(putItem.operation, 'PutItem');
-        assert.strictEqual(putItem.table, 'Orders');
+        assert.strictEqual(putItem.table, '${orders_table_name}');
         assert.strictEqual(putItem.key.orderId, 'ORDER#c1#auto-generated-id');
         assert.strictEqual(putItem.key.campaignId, 'CAMPAIGN#c1');
 
