@@ -99,4 +99,18 @@ describe('useQrDataUrl', () => {
     expect(result.current.error).toBe(err);
     expect(onError).toHaveBeenCalledWith(err);
   });
+
+  it('imperative generateQrCode with an empty url clears the state and returns null', async () => {
+    const { result } = renderHook(() => useQrDataUrl());
+
+    let output: string | null = 'unset';
+    await act(async () => {
+      output = await result.current.generateQrCode('');
+    });
+
+    expect(output).toBeNull();
+    expect(result.current.qrDataUrl).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(QRCode.toDataURL).not.toHaveBeenCalled();
+  });
 });

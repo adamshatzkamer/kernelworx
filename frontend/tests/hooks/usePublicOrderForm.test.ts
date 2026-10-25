@@ -110,6 +110,15 @@ describe('usePublicOrderForm quantity clamping', () => {
     expect(hook.current.form.lineItems['PROD#1']).toBe(0);
   });
 
+  it('updates one address field without touching the rest of the form', () => {
+    const { hook } = renderFormHook();
+    act(() => hook.current.setField('firstName', 'Ada'));
+    act(() => hook.current.setAddressField('city', 'Springfield'));
+    expect(hook.current.form.address.city).toBe('Springfield');
+    expect(hook.current.form.address.state).toBe('');
+    expect(hook.current.form.firstName).toBe('Ada');
+  });
+
   it('clamps a quantity above the picker maximum', () => {
     const { hook } = renderFormHook();
     act(() => hook.current.setQuantity('PROD#1', MAX_PUBLIC_QUANTITY + 50));

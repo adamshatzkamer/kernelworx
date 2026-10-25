@@ -57,6 +57,10 @@ describe('publicOrders', () => {
       expect(resolveReceiptUrl(`https://${window.location.host}/r/c1/s1/t1/t2`)).toBeNull();
     });
 
+    it('returns null for an https URL that fails to parse', () => {
+      expect(resolveReceiptUrl('https://')).toBeNull();
+    });
+
     it('returns null for null, undefined, empty, and non-string values', () => {
       expect(resolveReceiptUrl(null)).toBeNull();
       expect(resolveReceiptUrl(undefined)).toBeNull();

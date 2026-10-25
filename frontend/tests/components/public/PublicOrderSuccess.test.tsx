@@ -27,7 +27,7 @@ const mockedResolve = vi.mocked(resolveReceiptUrl);
 
 const receipt: PublicOrderReceiptView = {
   orderId: 'ORDER#c1#abc',
-  receiptUrl: '/r/c1/abc',
+  receiptUrl: '/r/c1/abc/rtok',
   totalAmount: 29,
   buyerEmailProvided: true,
   confirmationEmailSent: true,
@@ -82,8 +82,8 @@ describe('PublicOrderSuccess', () => {
   it('renders the receipt link once, resolving the url a single time per render', () => {
     render(<PublicOrderSuccess receipt={receipt} summary={summary} />);
     const link = screen.getByTestId('receipt-link');
-    expect(link).toHaveAttribute('href', '/r/c1/abc');
-    expect(link).toHaveTextContent('/r/c1/abc');
+    expect(link).toHaveAttribute('href', '/r/c1/abc/rtok');
+    expect(link).toHaveTextContent('/r/c1/abc/rtok');
     expect(mockedResolve).toHaveBeenCalledTimes(1);
   });
 

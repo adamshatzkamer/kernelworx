@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   validatePublicOrderForm,
-  publicOrderFormIsValid,
   MAX_PUBLIC_QUANTITY,
   MAX_BUYER_NOTES_LENGTH,
   addressStarted,
@@ -22,7 +21,7 @@ function validForm() {
 
 describe('publicOrderValidation', () => {
   it('valid form passes', () => {
-    expect(publicOrderFormIsValid(validForm() as any)).toBe(true);
+    expect(validatePublicOrderForm(validForm() as any).isValid).toBe(true);
     expect(validatePublicOrderForm(validForm() as any).errors).toEqual({});
   });
 

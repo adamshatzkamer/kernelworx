@@ -6,6 +6,7 @@
 
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
+import { ApolloProvider } from '@apollo/client/react';
 import { Box, CircularProgress } from '@mui/material';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';

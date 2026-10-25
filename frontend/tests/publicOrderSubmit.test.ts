@@ -26,11 +26,20 @@ describe('publicOrderSubmit', () => {
     expect(input.campaignId).toBe('camp');
   });
 
-  it('submitted summary derives payment method from offer when possible', () => {
+  it('carries trimmed buyer notes when present', () => {
+    const form = {
+      firstName: 'A', lastName: 'B', phone: '1234567890', email: '', address: { street: '', city: '', state: '', zipCode: '' },
+      paymentMethod: 'Venmo', notes: '  Leave the box at the side door  ', lineItems: { a: 1 },
+    } as any;
+    const input = buildPublicOrderInput({ profileId: '', token: 'tok', campaignId: 'camp', form }) as any;
+    expect(input.notes).toBe('Leave the box at the side door');
+  });
+
+  it('submitted summary derives payment method from the buyer selection', () => {
     const form = { firstName: 'A', lastName: 'B', phone: 'x', email: 'e@x.com', address: { street: '', city: '', state: '', zipCode: '' }, paymentMethod: 'Cash', notes: '', lineItems: {} } as any;
-    const offer = { paymentMethods: [{ name: 'Card' }] } as any;
+    const offer = { products: [], paymentMethods: [{ name: 'Card' }] } as any;
     const summary = buildSubmittedSummary(form, offer) as any;
-    expect(summary.paymentMethod).toBe('Card');
+    expect(summary.paymentMethod).toBe('Cash');
     expect(summary.email).toBe('e@x.com');
   });
 });

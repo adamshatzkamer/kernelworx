@@ -12,24 +12,26 @@
  * (covered in tests/hooks/usePublicOrderForm.test.ts).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { PublicOrderPage, NO_METHODS_MESSAGE, SOLD_OUT_MESSAGE } from '../src/pages/PublicOrderPage';
 import type { PublicOfferView } from '../src/components/public/publicOrderTypes';
 import type { usePublicOrderForm } from '../src/hooks/usePublicOrderForm';
 
-const { offerRef, errorRef, formMock } = vi.hoisted(() => ({
+const { offerRef, errorRef, loadingRef, refetchMock, formMock } = vi.hoisted(() => ({
   offerRef: { current: null as PublicOfferView | null },
   errorRef: { current: undefined as unknown },
+  loadingRef: { current: false },
+  refetchMock: vi.fn(),
   formMock: vi.fn(),
 }));
 
 vi.mock('../src/hooks/usePublicOrderOffer', () => ({
   usePublicOrderOffer: () => ({
     offer: offerRef.current,
-    loading: false,
+    loading: loadingRef.current,
     error: errorRef.current,
-    refetch: vi.fn(),
+    refetch: refetchMock,
   }),
 }));
 
@@ -76,9 +78,11 @@ const renderPage = (
   offer: PublicOfferView | null,
   formOverrides: Record<string, unknown> = {},
   offerError: unknown = undefined,
+  loading = false,
 ) => {
   offerRef.current = offer;
   errorRef.current = offerError;
+  loadingRef.current = loading;
   stubForm(formOverrides);
   return render(
     <MemoryRouter initialEntries={['/o/c1/tok-1']}>
@@ -227,5 +231,119 @@ describe('PublicOrderPage refetch failure', () => {
     renderPage(null, {}, new Error('gone'));
     expect(screen.queryByTestId('submit-order')).toBeNull();
     expect(screen.queryByText('Some of this page could not be refreshed.')).toBeNull();
+  });
+});
+
+describe('PublicOrderPage buyer interactions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('routes notes edits, payment selection, and the submit tap into the form hook', () => {
+    const setField = vi.fn();
+    const submit = vi.fn();
+    renderPage(
+      { ...baseOffer, paymentMethods: [{ name: 'Venmo', qrCodeUrl: null }, { name: 'Cash', qrCodeUrl: null }] },
+      { setField, submit },
+    );
+
+    fireEvent.change(screen.getByLabelText(/Notes \(optional\)/), { target: { value: 'Ring the bell twice' } });
+    expect(setField).toHaveBeenCalledWith('notes', 'Ring the bell twice');
+
+    fireEvent.click(screen.getByTestId('payment-label-Cash'));
+    expect(setField).toHaveBeenCalledWith('paymentMethod', 'Cash');
+
+    fireEvent.click(screen.getByTestId('submit-order'));
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses the native form submission so the button-driven submit is the only path', () => {
+    renderPage({ ...baseOffer });
+    const form = screen.getByTestId('submit-order').closest('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+  });
+
+  it('shows the in-flight label and per-field errors the validator produced', () => {
+    renderPage(
+      { ...baseOffer },
+      {
+        submitting: true,
+        errors: { paymentMethod: 'Pick a payment method to place the order.' },
+      },
+    );
+    expect(screen.getByRole('button', { name: /Placing your order/ })).toBeDisabled();
+    expect(screen.getByText('Pick a payment method to place the order.')).toBeInTheDocument();
+  });
+
+  it('keeps rendering when the form hook reports a null line-item map', () => {
+    renderPage({ ...baseOffer }, {
+      form: {
+        firstName: '',
+        lastName: '',
+        phone: '',
+        email: '',
+        address: { street: '', city: '', state: '', zipCode: '' },
+        lineItems: null,
+        paymentMethod: '',
+        notes: '',
+      },
+    });
+    expect(screen.getByTestId('order-total')).toBeInTheDocument();
+  });
+
+  it('refreshes the offer once when a pre-signed payment QR expires, then stops', () => {
+    renderPage(
+      { ...baseOffer, paymentMethods: [{ name: 'Venmo', qrCodeUrl: 'https://example.com/qr.png' }] },
+      {
+        form: {
+          firstName: '',
+          lastName: '',
+          phone: '',
+          email: '',
+          address: { street: '', city: '', state: '', zipCode: '' },
+          lineItems: {},
+          paymentMethod: 'Venmo',
+          notes: '',
+        },
+      },
+    );
+    const qrImage = screen.getByAltText('Payment QR code for Venmo');
+    fireEvent.error(qrImage);
+    fireEvent.error(qrImage);
+    expect(refetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('wires the no-email dialog buttons to the hook actions', () => {
+    const setNoEmailPrompt = vi.fn();
+    const submitNow = vi.fn();
+    renderPage({ ...baseOffer }, { noEmailPrompt: true, setNoEmailPrompt, submitNow });
+
+    fireEvent.click(screen.getByTestId('no-email-go-back'));
+    expect(setNoEmailPrompt).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByTestId('no-email-continue'));
+    expect(submitNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the unavailable page when the route is missing its parameters', () => {
+    offerRef.current = null;
+    errorRef.current = undefined;
+    loadingRef.current = false;
+    stubForm();
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="*" element={<PublicOrderPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('This order link is not available.')).toBeInTheDocument();
+  });
+
+  it('shows the loading state while the first offer read is in flight', () => {
+    renderPage(null, {}, undefined, true);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByTestId('submit-order')).toBeNull();
   });
 });

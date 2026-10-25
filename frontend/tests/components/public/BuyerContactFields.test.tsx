@@ -61,16 +61,24 @@ describe('BuyerContactFields', () => {
 
   it('reports address edits through the address change handler', () => {
     const { onAddressChange } = renderFields();
+    fireEvent.change(field('Street address'), { target: { value: '1 Main St' } });
     fireEvent.change(field('City'), { target: { value: 'Springfield' } });
+    fireEvent.change(field('State'), { target: { value: 'IL' } });
+    fireEvent.change(field('ZIP code'), { target: { value: '62701' } });
+    expect(onAddressChange).toHaveBeenCalledWith('street', '1 Main St');
     expect(onAddressChange).toHaveBeenCalledWith('city', 'Springfield');
+    expect(onAddressChange).toHaveBeenCalledWith('state', 'IL');
+    expect(onAddressChange).toHaveBeenCalledWith('zipCode', '62701');
   });
 
   it('reports name, phone, and email edits through the field change handler', () => {
     const { onFieldChange } = renderFields();
     fireEvent.change(field('First name'), { target: { value: 'Grace' } });
+    fireEvent.change(field('Last name'), { target: { value: 'Hopper' } });
     fireEvent.change(field('Phone'), { target: { value: '555-000-1111' } });
     fireEvent.change(field('Email (optional)'), { target: { value: 'g@example.com' } });
     expect(onFieldChange).toHaveBeenCalledWith('firstName', 'Grace');
+    expect(onFieldChange).toHaveBeenCalledWith('lastName', 'Hopper');
     expect(onFieldChange).toHaveBeenCalledWith('phone', '555-000-1111');
     expect(onFieldChange).toHaveBeenCalledWith('email', 'g@example.com');
   });

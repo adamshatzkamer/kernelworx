@@ -41,6 +41,7 @@ import { ensureProfileId, ensureCampaignId, ensureOrderId, toUrlId } from '../li
 import { formatCurrency, formatPhoneNumber } from '../lib/api-utils';
 import { formatDisplayDate } from '../lib/date-utils';
 import { getOrderStatusPresentation } from '../lib/orderStatus';
+import type { GqlSellerProfile, GqlOrder, GqlLineItem } from '../types';
 
 // Use SellerProfile with only the fields we need for permission checking
 type ProfilePermissions = Pick<GqlSellerProfile, 'profileId' | 'isOwner' | 'permissions'>;
